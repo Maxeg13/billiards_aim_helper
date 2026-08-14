@@ -21,7 +21,6 @@ pixels_per_pitch = 5.4 / (np.pi/6)
 pitch_per_pixels = 1./pixels_per_pitch
 to_radians = np.pi/180
 to_degrees = 1/to_radians
-kern_size = (50, 100)
 
 use_cap = False
 # use_cap = True
@@ -42,27 +41,26 @@ import torchvision.io as io
 # num_output_channels=3 returns 3 channels where R == G == B
 # grayscale_transform = transforms.Grayscale(num_output_channels=1)
 
-class Net(nn.Module):
+class PocketNet(nn.Module):
+    kern_size = (50, 100)
     def __init__(self):
         super().__init__()
-        self.conv_pos = nn.Conv2d(3, 2, kern_size)
-        self.conv_neg = nn.Conv2d(3, 1, kern_size)
-
-
+        self.conv_pos = nn.Conv2d(3, 2, PocketNet.kern_size)
+        self.conv_neg = nn.Conv2d(3, 1, PocketNet.kern_size)
     def forward(self, x):
         return [self.conv_pos(x), self.conv_neg(x)]
 
 
-model = Net().to(device)
-# model.train()
-kern1 = io.read_image("data/1.jpg").to(torch.float32).to(device).detach()
-kern2 = io.read_image("data/2.jpg").to(torch.float32).to(device).detach()
+pocketNet = PocketNet().to(device)
+# pocketNet.train()
+pocket_kern1 = io.read_image("data/pocket_kern1.jpg").to(torch.float32).to(device).detach()
+pocket_kern2 = io.read_image("data/pocket_kern2.jpg").to(torch.float32).to(device).detach()
 # kern3 = io.read_image("data/3.jpg").to(torch.float32).to(device).detach()
 
-kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
+pocket_kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
 
 def set_weight(conv, kern, idx):
-    mean = torch.sum(kern, dim=[1,2]) / (kern_size[0] * kern_size[1])
+    mean = torch.sum(kern, dim=[1,2]) / (kern.shape[1] * kern.shape[2])
     for i in range(3):
         kern[i] -= mean[i]
         std = torch.std(kern[i])
@@ -70,17 +68,17 @@ def set_weight(conv, kern, idx):
     with torch.no_grad():
         conv.weight[idx].copy_(kern)
 
-# model.conv_pos.weight.detach()
-set_weight(model.conv_pos, kern1, 1)
-set_weight(model.conv_pos, kern2, 0)
-# set_weight(model.conv_pos, kern3, 2)
+# pocketNet.conv_pos.weight.detach()
+set_weight(pocketNet.conv_pos, pocket_kern1, 1)
+set_weight(pocketNet.conv_pos, pocket_kern2, 0)
+# set_weight(pocketNet.conv_pos, kern3, 2)
 
-set_weight(model.conv_neg, kern_neg, 0)
-# model.conv_pos
-# set_weight(model, kern3, 2)
-# set_weight(model, kern4, 3)
+set_weight(pocketNet.conv_neg, pocket_kern_neg, 0)
+# pocketNet.conv_pos
+# set_weight(pocketNet, kern3, 2)
+# set_weight(pocketNet, kern4, 3)
 
-# model.eval()
+# pocketNet.eval()
 
 
 # 1. Open the video file
@@ -95,7 +93,7 @@ if use_cap:
 else:
     frame = cv2.imread('data/20260812_144025.jpg')
 
-def draw_rect(frame, torch_from_model):
+def draw_rect(frame, torch_from_model, className):
     max = torch.max(torch_from_model[0][0])
     idx_ij_pos = (torch_from_model[0][0] == max).nonzero()
     neg = torch_from_model[1][0, 0, idx_ij_pos[0, 1].item(), idx_ij_pos[0, 2].item()]
@@ -111,7 +109,7 @@ def draw_rect(frame, torch_from_model):
     # _______drawing
     # print(f"max: {max}, idx: {idx_ij_pos[0, 0].item()}")
     top_left = (idx_ij_pos[0, 2].item(), idx_ij_pos[0, 1].item())       # (x1, y1)
-    bottom_right = (idx_ij_pos[0, 2].item() + kern_size[1], idx_ij_pos[0, 1].item() + kern_size[0])  # (x2, y2)
+    bottom_right = (idx_ij_pos[0, 2].item() + className.kern_size[1], idx_ij_pos[0, 1].item() + className.kern_size[0])  # (x2, y2)
 
     cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 3)
 
@@ -200,11 +198,11 @@ while stay_cond():
 
     frame_torch = torch.tensor(frame_roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
     frame_torch = frame_torch.unsqueeze(0)
-    torch_from_model = model(frame_torch)
+    torch_from_model = pocketNet(frame_torch)
 
     #____drawing
     horizont = int(shape[0]//2 - pitch * pixels_per_pitch)
-    draw_rect(frame_roi, torch_from_model)
+    draw_rect(frame_roi, torch_from_model, PocketNet)
     draw_circles(frame_roi, circles, horizont)
 
     cv2.line(frame, (0, horizont), (shape[1], horizont), (0, 255, 0), thickness=1)
@@ -222,7 +220,7 @@ if use_cap:
 
 # ______small analisys if needed
 # Get the kernel weights
-kernel = model.conv_pos.weight.to("cpu").detach().numpy()[:, 0]
+kernel = pocketNet.conv_pos.weight.to("cpu").detach().numpy()[:, 0]
 # To get it as a NumPy array (requires detaching from the graph)
 # kernel_numpy = conv.weight.detach().cpu().numpy()[0]
 kernel_numpy = kernel
