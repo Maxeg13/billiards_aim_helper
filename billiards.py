@@ -14,32 +14,26 @@ import requests
 import threading
 import time
 
-gravity_init = [8.386473, 0., 6.984284]
-gravity = gravity_init
-width_crop_k = 0.23
-pixels_per_pitch = 5.4 / (np.pi/6)
-pitch_per_pixels = 1./pixels_per_pitch
 to_radians = np.pi/180
 to_degrees = 1/to_radians
 
-use_cap = False
-# use_cap = True
+gravity_init = [8.386473, 0., 6.984284]
+gravity = gravity_init
+width_crop_k = 0.23
+pixels_per_pitch = 591
+pitch_per_pixels = 1./pixels_per_pitch
+
+# use_cap = False
+use_cap = True
 # video_path = "data/20260811_135338.mp4"
-# cam_url = "http://192.168.1.201:8080"
-cam_url = "http://10.177.237.83:8080"
+cam_url = "http://192.168.1.201:8080"
+# cam_url = "http://10.177.237.83:8080"
 video_path = "data/20260811_173328.mp4"
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
 
 import torchvision.io as io
-
-# functions to show an image
-
-# Initialize the transform
-# num_output_channels=1 returns a single channel (L)
-# num_output_channels=3 returns 3 channels where R == G == B
-# grayscale_transform = transforms.Grayscale(num_output_channels=1)
 
 class PocketNet(nn.Module):
     kern_size = (50, 100)
@@ -127,7 +121,7 @@ def extract_circles(frame_roi):
     )
     return circles
 
-def draw_circles(frame_roi, circles, horizont):
+def draw_circles(frame_roi, circles, pitch):
     if circles is not None:
         # Convert coordinates and radii to integers
         circles = np.uint16(np.around(circles))
@@ -138,8 +132,10 @@ def draw_circles(frame_roi, circles, horizont):
 
             # Draw the outer circle outline (green)
             # cv2.circle(frame_roi, center, radius, (0, 255, 0), thickness=1)
-            angle = (int(center[1]) - horizont) * pitch_per_pixels * to_radians
-            minor_radius = int(radius * abs(np.sin(angle)))
+            # angle = (int(center[1]) - horizont) * pitch_per_pixels * to_radians
+            angle_shift = (int(center[1]) - frame_shape[0] // 2) * pitch_per_pixels
+            print(f"angle shift: {angle_shift}")
+            minor_radius = int(radius * abs(np.sin(pitch + angle_shift)))
             cv2.ellipse(frame_roi, center, axes = (radius, minor_radius), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1)
 
             # Draw the center point (red)
@@ -185,14 +181,12 @@ while stay_cond():
 
     # compense roll
     roll = numpy.atan(gravity[1] / gravity[0] + 1.111e-8) / np.pi * 180
-    shape = frame.shape[0:2]
-    center = (shape[1] // 2, shape[0] // 2)
+    frame_shape = frame.shape[0:2]
+    center = (frame_shape[1] // 2, frame_shape[0] // 2)
     rotation_matrix = cv2.getRotationMatrix2D(center, -roll, scale = 1.)
-    frame = cv2.warpAffine(frame, rotation_matrix, (shape[1], shape[0]))
+    frame = cv2.warpAffine(frame, rotation_matrix, (frame_shape[1], frame_shape[0]))
 
-    pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8) / np.pi * 180
-
-    frame_roi = frame[:, int(shape[1] * width_crop_k) : int(shape[1] * (1 - width_crop_k))]
+    frame_roi = frame[:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
 
     circles = extract_circles(frame_roi)
 
@@ -201,11 +195,13 @@ while stay_cond():
     torch_from_model = pocketNet(frame_torch)
 
     #____drawing
-    horizont = int(shape[0]//2 - pitch * pixels_per_pitch)
-    draw_rect(frame_roi, torch_from_model, PocketNet)
-    draw_circles(frame_roi, circles, horizont)
+    pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8)
+    horizont = int(frame_shape[0]//2 - pitch * pixels_per_pitch)
 
-    cv2.line(frame, (0, horizont), (shape[1], horizont), (0, 255, 0), thickness=1)
+    draw_rect(frame_roi, torch_from_model, PocketNet)
+    draw_circles(frame_roi, circles, pitch)
+
+    cv2.line(frame, (0, horizont), (frame_shape[1], horizont), (0, 255, 0), thickness=1)
 
     cv2.imshow("Video Playback", frame)
 
