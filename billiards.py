@@ -41,7 +41,7 @@ cue = Line(createP([732, 654]), createP([702, 567]))
 
 # Callback function to capture mouse movement
 def track_coords(event, x, y, flags, param):
-    if event == cv2.EVENT_LBUTTONDOWN:
+    if event == cv2.EVENT_MOUSEMOVE:
         # Prints live coordinates in your terminal
         print(f"X: {x}, Y: {y}", end="\r")
         cue.p1 = createP([x, y])
@@ -52,11 +52,12 @@ cv2.namedWindow("Image Window")
 cv2.setMouseCallback("Image Window", track_coords)
 
 class PocketNet(nn.Module):
-    kern_size = (50, 100)
+    kern_size_torch = (50, 100)
+    kern_size = [kern_size_torch[1], kern_size_torch[0]]
     def __init__(self):
         super().__init__()
-        self.conv_pos = nn.Conv2d(color_channels_num, 2, PocketNet.kern_size)
-        self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size)
+        self.conv_pos = nn.Conv2d(color_channels_num, 2, PocketNet.kern_size_torch)
+        self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size_torch)
     def forward(self, x):
         return [self.conv_pos(x), self.conv_neg(x)]
 
@@ -103,7 +104,7 @@ if use_cap:
 else:
     frame_src = cv2.imread('data/20260812_144025.jpg')
 
-def draw_rect(frame, torch_from_model, className):
+def get_coords(frame, torch_from_model):
     max = torch.max(torch_from_model[0][0])
     idx_ij_pos = (torch_from_model[0][0] == max).nonzero()
     neg = torch_from_model[1][0, 0, idx_ij_pos[0, 1].item(), idx_ij_pos[0, 2].item()]
@@ -119,9 +120,8 @@ def draw_rect(frame, torch_from_model, className):
     # _______drawing
     # print(f"max: {max}, idx: {idx_ij_pos[0, 0].item()}")
     top_left = (idx_ij_pos[0, 2].item(), idx_ij_pos[0, 1].item())       # (x1, y1)
-    bottom_right = (idx_ij_pos[0, 2].item() + className.kern_size[1], idx_ij_pos[0, 1].item() + className.kern_size[0])  # (x2, y2)
-
-    cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 3)
+    # bottom_right = (idx_ij_pos[0, 2].item() + className.kern_size_torch[1], idx_ij_pos[0, 1].item() + className.kern_size_torch[0])  # (x2, y2)
+    return top_left
 
 def extract_circles(roi):
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -234,24 +234,48 @@ while stay_cond():
     #____drawing
     horizont = int(frame_shape[0]//2 - main_pitch * pixels_per_pitch)
 
-    draw_rect(roi, pockets_torch, PocketNet)
+    # draw_rect(roi, pockets_torch, PocketNet)
+    pocket_coords_A = get_coords(roi, pockets_torch)
+    pocket_coords = [int(pocket_coords_A[i] + PocketNet.kern_size[i] * 0.5) for i in range(2)]
+    pocket_coords_B = [pocket_coords_A[i] + PocketNet.kern_size[i] for i in range(2)]
+    cv2.rectangle(roi, pocket_coords_A, pocket_coords_B, (0, 255, 0), 3)
     draw_ellipses(roi, ellipses, main_pitch)
 
+    #____phantom ball
     ellipses = np.uint16(np.around(ellipses))
     target_ellipse = ellipses[0]
     target_center = target_ellipse[0:2]
     major_r, minor_r = target_ellipse[2:4]
-    for alpha in np.arange(0, np.pi, 0.2):
+    phantom_center = None
+    dist = 4
+    for alpha in np.arange(0, np.pi, 0.01):
         x_off = major_r * np.cos(alpha) * 2
         y_off = minor_r * np.sin(alpha) * 2
         center = target_center.copy()
         center[0] += x_off
         center[1] += y_off
-        cv2.ellipse(roi, center, axes = (major_r, minor_r), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+
+        # compensate diff btw src and roi widths
+        dist_tmp = signedDistP(createP(center) + createP([frame_shape[1] * width_crop_k, 0]), cue)
+        print(f"dist: {dist}")
+        if abs(dist_tmp) < abs(dist):
+            dist = dist_tmp
+            phantom_center = center
+    if phantom_center is not None:
+        cv2.ellipse(roi, phantom_center, axes = (major_r, minor_r), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
 
     # horizont
     cv2.line(frame, (0, horizont), (frame_shape[1], horizont), (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+    # cue
     cv2.line(frame, cue.p1, cue.p2, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+
+    # target traj
+    if phantom_center is not None:
+        vector = createP(target_center) - createP(phantom_center)
+        vector *= 8
+        vector = createP(target_center) + vector
+        cv2.line(roi, phantom_center, vector, RED, thickness=1, lineType=cv2.LINE_AA)
+
 
     cv2.imshow("Image Window", frame)
 
@@ -259,7 +283,7 @@ while stay_cond():
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     else:
-        cv2.waitKey(100)
+        cv2.waitKey(40)
 if use_cap:
     cap.release()
     cv2.destroyAllWindows()
