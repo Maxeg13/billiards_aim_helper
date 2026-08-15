@@ -14,6 +14,9 @@ import requests
 import threading
 import time
 
+RED = (0, 0, 255)
+WHITE = (255, 255, 255)
+
 to_radians = np.pi/180
 to_degrees = 1/to_radians
 
@@ -23,8 +26,8 @@ width_crop_k = 0.23
 pixels_per_pitch = 591
 pitch_per_pixels = 1./pixels_per_pitch
 
-# use_cap = False
-use_cap = True
+use_cap = False
+# use_cap = True
 # video_path = "data/20260811_135338.mp4"
 cam_url = "http://192.168.1.201:8080"
 # cam_url = "http://10.177.237.83:8080"
@@ -107,8 +110,8 @@ def draw_rect(frame, torch_from_model, className):
 
     cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 3)
 
-def extract_circles(frame_roi):
-    gray_roi = cv2.cvtColor(frame_roi, cv2.COLOR_BGR2GRAY)
+def extract_circles(roi):
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     circles = cv2.HoughCircles(
         image=gray_roi,
         method=cv2.HOUGH_GRADIENT,
@@ -121,25 +124,23 @@ def extract_circles(frame_roi):
     )
     return circles
 
-def draw_circles(frame_roi, circles, pitch):
-    if circles is not None:
+def draw_ellipses(roi, ellipses, main_pitch):
+    if ellipses is not None:
         # Convert coordinates and radii to integers
-        circles = np.uint16(np.around(circles))
+        ellipses = np.uint16(np.around(ellipses))
 
-        for i in circles[0, :]:
-            center = (i[0], i[1])  # (x, y) coordinates of center
-            radius = i[2]          # radius
+        for i, ellipse in enumerate(ellipses):
+            center = (ellipse[0], ellipse[1])  # (x, y)
+            radius = ellipse[2]
+            minor_radius = ellipse[3]
 
             # Draw the outer circle outline (green)
-            # cv2.circle(frame_roi, center, radius, (0, 255, 0), thickness=1)
-            # angle = (int(center[1]) - horizont) * pitch_per_pixels * to_radians
-            angle_shift = (int(center[1]) - frame_shape[0] // 2) * pitch_per_pixels
-            print(f"angle shift: {angle_shift}")
-            minor_radius = int(radius * abs(np.sin(pitch + angle_shift)))
-            cv2.ellipse(frame_roi, center, axes = (radius, minor_radius), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1)
+            cv2.ellipse(roi, center, axes = (radius, minor_radius), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1)
 
             # Draw the center point (red)
-            cv2.circle(frame_roi, center, 2, (0, 0, 255), 3)
+            color = RED
+            if i == 0: color = WHITE
+            cv2.circle(roi, center, 2, color, 3)
 
 
 def update_gravity():
@@ -152,6 +153,20 @@ def update_gravity():
 gravity_thread = threading.Thread(target=update_gravity, args=())
 if use_cap:
     gravity_thread.start()
+
+def circles_to_ellipses(circles, main_pitch):
+    ellipses = []
+    for circle in circles:
+        center = (circle[0], circle[1])  # (x, y)
+        radius = circle[2]
+
+        # Draw the outer circle outline (green)
+        angle_shift = (int(center[1]) - frame_shape[0] // 2) * pitch_per_pixels
+        print(f"angle shift: {angle_shift}")
+        minor_radius = int(radius * abs(np.sin(main_pitch + angle_shift)))
+        # circle.append(minor_radius)
+        ellipses.append(np.append(circle, minor_radius))
+    return ellipses
 
 # Main routine condition
 def make_stay_cond():
@@ -186,20 +201,24 @@ while stay_cond():
     rotation_matrix = cv2.getRotationMatrix2D(center, -roll, scale = 1.)
     frame = cv2.warpAffine(frame, rotation_matrix, (frame_shape[1], frame_shape[0]))
 
-    frame_roi = frame[:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
+    roi = frame[:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
 
-    circles = extract_circles(frame_roi)
+    main_pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8)
+    circles = extract_circles(roi)
+    if circles is not None:
+        circles = circles[0]
+    circles = sorted(circles, key=lambda item: item[2])
+    ellipses = circles_to_ellipses(circles, main_pitch)
 
-    frame_torch = torch.tensor(frame_roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
-    frame_torch = frame_torch.unsqueeze(0)
-    torch_from_model = pocketNet(frame_torch)
+    roi_torch = torch.tensor(roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
+    roi_torch = roi_torch.unsqueeze(0)
+    pockets_torch = pocketNet(roi_torch)
 
     #____drawing
-    pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8)
-    horizont = int(frame_shape[0]//2 - pitch * pixels_per_pitch)
+    horizont = int(frame_shape[0]//2 - main_pitch * pixels_per_pitch)
 
-    draw_rect(frame_roi, torch_from_model, PocketNet)
-    draw_circles(frame_roi, circles, pitch)
+    draw_rect(roi, pockets_torch, PocketNet)
+    draw_ellipses(roi, ellipses, main_pitch)
 
     cv2.line(frame, (0, horizont), (frame_shape[1], horizont), (0, 255, 0), thickness=1)
 
