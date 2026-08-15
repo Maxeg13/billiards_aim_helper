@@ -1,8 +1,6 @@
 import numpy
 import torch
 import torchvision
-# import torchvision.transforms as transforms
-# import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
@@ -10,12 +8,15 @@ import numpy as np
 import random
 import cv2
 import requests
-# from PIL.ImageOps import scale
 import threading
 import time
+import torchvision.io as io
+from geom_tools import *
 
 RED = (0, 0, 255)
 WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+
 to_radians = np.pi/180
 to_degrees = 1/to_radians
 color_channels_num = 3
@@ -26,8 +27,8 @@ width_crop_k = 0.23
 pixels_per_pitch = 591
 pitch_per_pixels = 1./pixels_per_pitch
 
-# use_cap = False
-use_cap = True
+use_cap = False
+# use_cap = True
 # video_path = "data/20260811_135338.mp4"
 cam_url = "http://192.168.1.201:8080"
 # cam_url = "http://10.177.237.83:8080"
@@ -36,14 +37,26 @@ video_path = "data/20260811_173328.mp4"
 if torch.cuda.is_available():
     device = torch.device("cuda")
 
-import torchvision.io as io
+cue = Line(createP([732, 654]), createP([702, 567]))
+
+# Callback function to capture mouse movement
+def track_coords(event, x, y, flags, param):
+    if event == cv2.EVENT_LBUTTONDOWN:
+        # Prints live coordinates in your terminal
+        print(f"X: {x}, Y: {y}", end="\r")
+        cue.p1 = createP([x, y])
+    # if event == cv2.EVENT_LBUTTONUP:
+
+cv2.namedWindow("Image Window")
+# Bind the tracker function to the window
+cv2.setMouseCallback("Image Window", track_coords)
 
 class PocketNet(nn.Module):
     kern_size = (50, 100)
     def __init__(self):
         super().__init__()
-        self.conv_pos = nn.Conv2d(3, 2, PocketNet.kern_size)
-        self.conv_neg = nn.Conv2d(3, 1, PocketNet.kern_size)
+        self.conv_pos = nn.Conv2d(color_channels_num, 2, PocketNet.kern_size)
+        self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size)
     def forward(self, x):
         return [self.conv_pos(x), self.conv_neg(x)]
 
@@ -133,12 +146,11 @@ def draw_ellipses(roi, ellipses, main_pitch):
     ellipses = np.uint16(np.around(ellipses))
 
     for i, ellipse in enumerate(ellipses):
-        center = (ellipse[0], ellipse[1])  # (x, y)
-        radius = ellipse[2]
-        minor_radius = ellipse[3]
+        center = ellipse[0:2]  # (x, y)
+        major_radius, minor_radius = ellipse[2:4]
 
         # Draw the outer circle outline (green)
-        cv2.ellipse(roi, center, axes = (radius, minor_radius), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1)
+        cv2.ellipse(roi, center, axes = (major_radius, minor_radius), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
 
         # Draw the center point (red)
         color = RED
@@ -181,7 +193,7 @@ def make_stay_cond():
         else:
             stay_ctr+=1
             print(stay_ctr)
-            return stay_ctr < 2
+            return True
     return func
 
 stay_cond = make_stay_cond()
@@ -225,15 +237,29 @@ while stay_cond():
     draw_rect(roi, pockets_torch, PocketNet)
     draw_ellipses(roi, ellipses, main_pitch)
 
-    cv2.line(frame, (0, horizont), (frame_shape[1], horizont), (0, 255, 0), thickness=1)
+    ellipses = np.uint16(np.around(ellipses))
+    target_ellipse = ellipses[0]
+    target_center = target_ellipse[0:2]
+    major_r, minor_r = target_ellipse[2:4]
+    for alpha in np.arange(0, np.pi, 0.2):
+        x_off = major_r * np.cos(alpha) * 2
+        y_off = minor_r * np.sin(alpha) * 2
+        center = target_center.copy()
+        center[0] += x_off
+        center[1] += y_off
+        cv2.ellipse(roi, center, axes = (major_r, minor_r), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
 
-    cv2.imshow("Video Playback", frame)
+    # horizont
+    cv2.line(frame, (0, horizont), (frame_shape[1], horizont), (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+    cv2.line(frame, cue.p1, cue.p2, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+
+    cv2.imshow("Image Window", frame)
 
     if use_cap:
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     else:
-        cv2.waitKey(0)
+        cv2.waitKey(100)
 if use_cap:
     cap.release()
     cv2.destroyAllWindows()
