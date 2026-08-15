@@ -13,6 +13,7 @@ import time
 import torchvision.io as io
 from geom_tools import *
 
+GREEN = (0, 255, 0)
 RED = (0, 0, 255)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -27,8 +28,8 @@ width_crop_k = 0.23
 pixels_per_pitch = 591
 pitch_per_pixels = 1./pixels_per_pitch
 
-use_cap = False
-# use_cap = True
+# use_cap = False
+use_cap = True
 # video_path = "data/20260811_135338.mp4"
 cam_url = "http://192.168.1.201:8080"
 # cam_url = "http://10.177.237.83:8080"
@@ -36,6 +37,8 @@ video_path = "data/20260811_173328.mp4"
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
 
 cue = Line(createP([732, 654]), createP([702, 567]))
 
@@ -43,12 +46,11 @@ cue = Line(createP([732, 654]), createP([702, 567]))
 def track_coords(event, x, y, flags, param):
     if event == cv2.EVENT_MOUSEMOVE:
         # Prints live coordinates in your terminal
-        print(f"X: {x}, Y: {y}", end="\r")
+        # print(f"X: {x}, Y: {y}", end="\r")
         cue.p1 = createP([x, y])
     # if event == cv2.EVENT_LBUTTONUP:
 
 cv2.namedWindow("Image Window")
-# Bind the tracker function to the window
 cv2.setMouseCallback("Image Window", track_coords)
 
 class PocketNet(nn.Module):
@@ -120,7 +122,6 @@ def get_coords(frame, torch_from_model):
     # _______drawing
     # print(f"max: {max}, idx: {idx_ij_pos[0, 0].item()}")
     top_left = (idx_ij_pos[0, 2].item(), idx_ij_pos[0, 1].item())       # (x1, y1)
-    # bottom_right = (idx_ij_pos[0, 2].item() + className.kern_size_torch[1], idx_ij_pos[0, 1].item() + className.kern_size_torch[0])  # (x2, y2)
     return top_left
 
 def extract_circles(roi):
@@ -169,6 +170,28 @@ gravity_thread = threading.Thread(target=update_gravity, args=())
 if use_cap:
     gravity_thread.start()
 
+def find_phantom(target_ellipse):
+    phantom_center = None
+    target_center = target_ellipse[0:2]
+    major_r, minor_r = target_ellipse[2:4]
+    dist = 4
+    for alpha in np.arange(0, np.pi, 0.007):
+        x_off = major_r * np.cos(alpha) * 2
+        y_off = minor_r * np.sin(alpha) * 2
+        center = target_center.copy()
+        center[0] += x_off
+        center[1] += y_off
+
+        # compensate diff btw src and roi widths
+        cue_shifted = cue.addP(-createP([frame_shape[1] * width_crop_k, 0]))
+        dist_tmp = signedDistP(createP(center), cue_shifted)
+        # print(f"dist: {dist}")
+        if abs(dist_tmp) < abs(dist):
+            print()
+            dist = dist_tmp
+            phantom_center = center
+    return phantom_center
+
 def circles_to_ellipses(circles, main_pitch):
     ellipses = []
     for circle in circles:
@@ -177,7 +200,7 @@ def circles_to_ellipses(circles, main_pitch):
 
         # Draw the outer circle outline (green)
         angle_shift = (int(center[1]) - frame_shape[0] // 2) * pitch_per_pixels
-        print(f"angle shift: {angle_shift}")
+        # print(f"angle shift: {angle_shift}")
         minor_radius = int(radius * abs(np.sin(main_pitch + angle_shift)))
         # circle.append(minor_radius)
         ellipses.append(np.append(circle, minor_radius))
@@ -192,7 +215,7 @@ def make_stay_cond():
             return cap.isOpened()
         else:
             stay_ctr+=1
-            print(stay_ctr)
+            # print(stay_ctr)
             return True
     return func
 
@@ -238,39 +261,30 @@ while stay_cond():
     pocket_coords_A = get_coords(roi, pockets_torch)
     pocket_coords = [int(pocket_coords_A[i] + PocketNet.kern_size[i] * 0.5) for i in range(2)]
     pocket_coords_B = [pocket_coords_A[i] + PocketNet.kern_size[i] for i in range(2)]
-    cv2.rectangle(roi, pocket_coords_A, pocket_coords_B, (0, 255, 0), 3)
+    cv2.rectangle(roi, pocket_coords_A, pocket_coords_B, GREEN, thickness=3)
     draw_ellipses(roi, ellipses, main_pitch)
 
     #____phantom ball
-    ellipses = np.uint16(np.around(ellipses))
-    target_ellipse = ellipses[0]
-    target_center = target_ellipse[0:2]
-    major_r, minor_r = target_ellipse[2:4]
+    # target_ellipse = None
     phantom_center = None
-    dist = 4
-    for alpha in np.arange(0, np.pi, 0.01):
-        x_off = major_r * np.cos(alpha) * 2
-        y_off = minor_r * np.sin(alpha) * 2
-        center = target_center.copy()
-        center[0] += x_off
-        center[1] += y_off
+    if len(ellipses) == 2:
+        target_ellipse = ellipses[0]
+        target_center = target_ellipse[0:2]
+        major_r, minor_r = target_ellipse[2:4]
+        phantom_center = find_phantom(target_ellipse)
 
-        # compensate diff btw src and roi widths
-        dist_tmp = signedDistP(createP(center) + createP([frame_shape[1] * width_crop_k, 0]), cue)
-        print(f"dist: {dist}")
-        if abs(dist_tmp) < abs(dist):
-            dist = dist_tmp
-            phantom_center = center
     if phantom_center is not None:
-        cv2.ellipse(roi, phantom_center, axes = (major_r, minor_r), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+        phantom_center = np.uint16(np.around(phantom_center))
+        cv2.ellipse(roi, phantom_center, axes = (int(major_r), int(minor_r)), angle=0, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
 
     # horizont
-    cv2.line(frame, (0, horizont), (frame_shape[1], horizont), (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+    cv2.line(frame, (0, horizont), (frame_shape[1], horizont), GREEN, thickness=1, lineType=cv2.LINE_AA)
     # cue
-    cv2.line(frame, cue.p1, cue.p2, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+    cv2.line(frame, cue.p1, cue.p2, GREEN, thickness=1, lineType=cv2.LINE_AA)
 
     # target traj
     if phantom_center is not None:
+        target_center = np.uint16(np.around(target_center))
         vector = createP(target_center) - createP(phantom_center)
         vector *= 8
         vector = createP(target_center) + vector

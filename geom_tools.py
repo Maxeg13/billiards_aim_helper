@@ -69,6 +69,8 @@ class Line:
 		self.p1 += p
 		self.p2 += p
 		return self
+	def addP(self, p):
+		return Line(self.p1 + p, self.p2 + p)
 	def interP(self, line):
 		self.pp = self.p2 - self.p1
 		pp = line.p2 - line.p1
