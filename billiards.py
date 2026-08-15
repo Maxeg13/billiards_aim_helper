@@ -16,9 +16,9 @@ import time
 
 RED = (0, 0, 255)
 WHITE = (255, 255, 255)
-
 to_radians = np.pi/180
 to_degrees = 1/to_radians
+color_channels_num = 3
 
 gravity_init = [8.386473, 0., 6.984284]
 gravity = gravity_init
@@ -26,8 +26,8 @@ width_crop_k = 0.23
 pixels_per_pitch = 591
 pitch_per_pixels = 1./pixels_per_pitch
 
-use_cap = False
-# use_cap = True
+# use_cap = False
+use_cap = True
 # video_path = "data/20260811_135338.mp4"
 cam_url = "http://192.168.1.201:8080"
 # cam_url = "http://10.177.237.83:8080"
@@ -58,7 +58,7 @@ pocket_kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
 
 def set_weight(conv, kern, idx):
     mean = torch.sum(kern, dim=[1,2]) / (kern.shape[1] * kern.shape[2])
-    for i in range(3):
+    for i in range(color_channels_num):
         kern[i] -= mean[i]
         std = torch.std(kern[i])
         kern[i] /= (std ** 2)
@@ -88,7 +88,7 @@ if use_cap:
         print("Error: Could not open video file.")
         exit()
 else:
-    frame = cv2.imread('data/20260812_144025.jpg')
+    frame_src = cv2.imread('data/20260812_144025.jpg')
 
 def draw_rect(frame, torch_from_model, className):
     max = torch.max(torch_from_model[0][0])
@@ -122,25 +122,28 @@ def extract_circles(roi):
         minRadius=30,
         maxRadius=60
     )
+
+    if circles is None:
+        circles = []
+
     return circles
 
 def draw_ellipses(roi, ellipses, main_pitch):
-    if ellipses is not None:
-        # Convert coordinates and radii to integers
-        ellipses = np.uint16(np.around(ellipses))
+    # Convert coordinates and radii to integers
+    ellipses = np.uint16(np.around(ellipses))
 
-        for i, ellipse in enumerate(ellipses):
-            center = (ellipse[0], ellipse[1])  # (x, y)
-            radius = ellipse[2]
-            minor_radius = ellipse[3]
+    for i, ellipse in enumerate(ellipses):
+        center = (ellipse[0], ellipse[1])  # (x, y)
+        radius = ellipse[2]
+        minor_radius = ellipse[3]
 
-            # Draw the outer circle outline (green)
-            cv2.ellipse(roi, center, axes = (radius, minor_radius), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1)
+        # Draw the outer circle outline (green)
+        cv2.ellipse(roi, center, axes = (radius, minor_radius), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1)
 
-            # Draw the center point (red)
-            color = RED
-            if i == 0: color = WHITE
-            cv2.circle(roi, center, 2, color, 3)
+        # Draw the center point (red)
+        color = RED
+        if i == 0: color = WHITE
+        cv2.circle(roi, center, radius=2, color=color, thickness=3)
 
 
 def update_gravity():
@@ -177,6 +180,7 @@ def make_stay_cond():
             return cap.isOpened()
         else:
             stay_ctr+=1
+            print(stay_ctr)
             return stay_ctr < 2
     return func
 
@@ -185,14 +189,14 @@ stay_cond = make_stay_cond()
 # Main routine
 while stay_cond():
     if use_cap:
-        ret, frame = cap.read()
+        ret, frame_src = cap.read()
 
         # If ret is False, the video has reached the end
         if not ret:
             print("End of video file or cannot read the frame.")
             break
 
-    frame = cv2.resize(frame, None, fx=0.4, fy=0.4, interpolation=cv2.INTER_AREA)
+    frame = cv2.resize(frame_src, None, fx=0.4, fy=0.4, interpolation=cv2.INTER_AREA)
 
     # compense roll
     roll = numpy.atan(gravity[1] / gravity[0] + 1.111e-8) / np.pi * 180
@@ -204,8 +208,9 @@ while stay_cond():
     roi = frame[:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
 
     main_pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8)
+
     circles = extract_circles(roi)
-    if circles is not None:
+    if len(circles):
         circles = circles[0]
     circles = sorted(circles, key=lambda item: item[2])
     ellipses = circles_to_ellipses(circles, main_pitch)
