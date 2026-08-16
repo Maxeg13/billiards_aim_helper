@@ -68,30 +68,30 @@ def set_weight(conv, kern, idx):
         conv.weight[idx].copy_(kern)
 
 class PocketNet(nn.Module):
-    kern_size_torch = (50, 100)
-    kern_size = [kern_size_torch[1], kern_size_torch[0]]
+    kern_size = (50, 100)
+    # kern_size = [kern_size[1], kern_size[0]]
     def __init__(self):
         super().__init__()
-        self.conv_pos = nn.Conv2d(color_channels_num, 2, PocketNet.kern_size_torch)
-        self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size_torch)
+        self.conv_pos = nn.Conv2d(color_channels_num, 2, PocketNet.kern_size)
+        self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size)
     def forward(self, x):
         return [self.conv_pos(x), self.conv_neg(x)]
 
 class CueBaseNet(nn.Module):
-    kern_size_torch = (20, 70)
-    kern_size = [kern_size_torch[1], kern_size_torch[0]]
+    kern_size = (20, 70)
+    # kern_size = [kern_size[1], kern_size[0]]
     def __init__(self):
         super().__init__()
-        self.conv_pos = nn.Conv2d(color_channels_num, 2, CueBaseNet.kern_size_torch)
-        # self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size_torch)
+        self.conv_pos = nn.Conv2d(color_channels_num, 2, CueBaseNet.kern_size)
+        # self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size)
     def forward(self, x):
         return self.conv_pos(x)
 
 pocket_net = PocketNet().to(device)
 cue_base_net = CueBaseNet().to(device)
 # pocket_net.train()
-# pocket_kern1 = io.read_image("data/pocket_kern1.jpg").to(torch.float32).to(device).detach()
-# pocket_kern2 = io.read_image("data/pocket_kern2.jpg").to(torch.float32).to(device).detach()
+pocket_kern1 = io.read_image("data/pocket_kern1.jpg").to(torch.float32).to(device).detach()
+pocket_kern2 = io.read_image("data/pocket_kern2.jpg").to(torch.float32).to(device).detach()
 cue_base_kern1 = io.read_image("data/cue_base_kern1.jpg").to(torch.float32).to(device).detach()
 cue_base_kern2 = io.read_image("data/cue_base_kern2.jpg").to(torch.float32).to(device).detach()
 # kern3 = io.read_image("data/3.jpg").to(torch.float32).to(device).detach()
@@ -158,7 +158,18 @@ if use_cap:
         print("Error: Could not open video file.")
         exit()
 
-def get_coords(frame, torch_from_model):
+def get_coords_h(torch_from_model):
+    max = torch.max(torch_from_model[0])
+    idx_ij_pos = (torch_from_model[0] == max).nonzero()
+    print(f"max: {max}, idx: {idx_ij_pos[0, 0].item()}")
+
+    if max < 3400:
+        return None
+
+    top_left = (idx_ij_pos[0, 2].item(), idx_ij_pos[0, 1].item())       # (x1, y1)
+    return top_left
+
+def get_coords(torch_from_model):
     max = torch.max(torch_from_model[0][0])
     idx_ij_pos = (torch_from_model[0][0] == max).nonzero()
     neg = torch_from_model[1][0, 0, idx_ij_pos[0, 1].item(), idx_ij_pos[0, 2].item()]
@@ -299,6 +310,8 @@ while stay_cond():
 
     roi_offset_y = min(frame_shape[0] // 2, max(horizont, 0))
     roi = frame[roi_offset_y:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
+    roi_base = roi[-1 - 71: -1]
+
 
     circles = extract_circles(roi)
     if len(circles):
@@ -306,12 +319,19 @@ while stay_cond():
     circles = sorted(circles, key=lambda item: item[2])
     ellipses = circles_to_ellipses(circles, main_pitch)
 
-    roi_torch = torch.tensor(roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
+    roi_torch = torch.tensor(roi_base.transpose(2, 0, 1), dtype=torch.float32, device=device)
     roi_torch = roi_torch.unsqueeze(0)
     # pockets_torch = pocket_net(roi_torch)
-    # cue_base_torch = cue_base_net(roi_torch)
+    cue_base_torch = cue_base_net(roi_torch)
+
+    cue_base_coords_A = get_coords_h(cue_base_torch)
+    if cue_base_coords_A is not None:
+        cue_base_coords = [cue_base_coords_A[i] + cue_base_net.kern_size[1-i] // 2 for i in range(2)]
 
     #____DRAWING BEGINGS
+    if cue_base_coords_A is not None:
+        cv2.circle(roi_base, cue_base_coords, radius=2, color=RED, thickness=3)
+
     # pocket_coords_A = get_coords(roi, pockets_torch)
     # pocket_coords = [int(pocket_coords_A[i] + PocketNet.kern_size[i] * 0.5) for i in range(2)]
     # pocket_coords_B = [pocket_coords_A[i] + PocketNet.kern_size[i] for i in range(2)]
