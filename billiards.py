@@ -28,6 +28,8 @@ width_crop_k = 0.23
 pixels_per_pitch = 591
 pitch_per_pixels = 1./pixels_per_pitch
 
+use_stream_out = True
+# use_stream_out = False
 # use_cap = False
 use_cap = True
 # video_path = "data/20260811_135338.mp4"
@@ -93,6 +95,40 @@ set_weight(pocketNet.conv_neg, pocket_kern_neg, 0)
 
 # pocketNet.eval()
 
+if use_stream_out:
+    from flask import Flask, Response
+
+    app = Flask("flask")
+    def flask_generate_frames():
+        while True:
+            # Encode the frame into JPEG format
+            ret, buffer = cv2.imencode('.jpg', frame_out)
+            if not ret:
+                continue
+
+            # Convert the encoded frame to bytes
+            frame_bytes = buffer.tobytes()
+
+            # Yield the frame in the MJPEG multipart format
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+    @app.route('/video')
+    def video():
+        # Return the response generated along with the specific media type (mime type)
+        return Response(flask_generate_frames(),
+                        mimetype='multipart/x-mixed-replace; boundary=frame')
+
+    @app.route('/')
+    def index():
+        # Simple HTML page embedding the MJPEG stream
+        return '<h1>OpenCV MJPEG Stream</h1><img src="/video" width="640">'
+
+    def startFlask():
+        app.run(host='0.0.0.0', port=5000, threaded=True)
+
+    flaskThread = threading.Thread(target=startFlask, args=())
+    flaskThread.start()
 
 # 1. Open the video file
 if use_cap:
@@ -290,8 +326,8 @@ while stay_cond():
         vector = createP(target_center) + vector
         cv2.line(roi, phantom_center, vector, RED, thickness=1, lineType=cv2.LINE_AA)
 
-
-    cv2.imshow("Image Window", frame)
+    frame_out = frame.copy()
+    cv2.imshow("Image Window", frame_out)
 
     if use_cap:
         if cv2.waitKey(1) & 0xFF == ord('q'):
