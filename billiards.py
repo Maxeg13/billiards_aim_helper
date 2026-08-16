@@ -58,6 +58,15 @@ def track_mouse_coords(event, x, y, flags, param):
 cv2.namedWindow("Image Window")
 cv2.setMouseCallback("Image Window", track_mouse_coords)
 
+def set_weight(conv, kern, idx):
+    mean = torch.sum(kern, dim=[1,2]) / (kern.shape[1] * kern.shape[2])
+    for i in range(color_channels_num):
+        kern[i] -= mean[i]
+        std = torch.std(kern[i])
+        kern[i] /= (std ** 2)
+    with torch.no_grad():
+        conv.weight[idx].copy_(kern)
+
 class PocketNet(nn.Module):
     kern_size_torch = (50, 100)
     kern_size = [kern_size_torch[1], kern_size_torch[0]]
@@ -69,36 +78,33 @@ class PocketNet(nn.Module):
         return [self.conv_pos(x), self.conv_neg(x)]
 
 class CueBaseNet(nn.Module):
-    kern_size_torch = (30, 100)
+    kern_size_torch = (20, 70)
     kern_size = [kern_size_torch[1], kern_size_torch[0]]
     def __init__(self):
         super().__init__()
-        self.conv_pos = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size_torch)
+        self.conv_pos = nn.Conv2d(color_channels_num, 2, CueBaseNet.kern_size_torch)
         # self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size_torch)
     def forward(self, x):
-        return [self.conv_pos(x)]
+        return self.conv_pos(x)
 
 pocketNet = PocketNet().to(device)
+cueBaseNet = CueBaseNet().to(device)
 # pocketNet.train()
-pocket_kern1 = io.read_image("data/pocket_kern1.jpg").to(torch.float32).to(device).detach()
-pocket_kern2 = io.read_image("data/pocket_kern2.jpg").to(torch.float32).to(device).detach()
+# pocket_kern1 = io.read_image("data/pocket_kern1.jpg").to(torch.float32).to(device).detach()
+# pocket_kern2 = io.read_image("data/pocket_kern2.jpg").to(torch.float32).to(device).detach()
+cue_base_kern1 = io.read_image("data/cue_base_kern1.jpg").to(torch.float32).to(device).detach()
+cue_base_kern2 = io.read_image("data/cue_base_kern2.jpg").to(torch.float32).to(device).detach()
 # kern3 = io.read_image("data/3.jpg").to(torch.float32).to(device).detach()
 
 pocket_kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
 
-def set_weight(conv, kern, idx):
-    mean = torch.sum(kern, dim=[1,2]) / (kern.shape[1] * kern.shape[2])
-    for i in range(color_channels_num):
-        kern[i] -= mean[i]
-        std = torch.std(kern[i])
-        kern[i] /= (std ** 2)
-    with torch.no_grad():
-        conv.weight[idx].copy_(kern)
-
 # pocketNet.conv_pos.weight.detach()
-set_weight(pocketNet.conv_pos, pocket_kern1, 1)
-set_weight(pocketNet.conv_pos, pocket_kern2, 0)
+# set_weight(pocketNet.conv_pos, pocket_kern1, 1)
+# set_weight(pocketNet.conv_pos, pocket_kern2, 0)
 # set_weight(pocketNet.conv_pos, kern3, 2)
+
+set_weight(cueBaseNet.conv_pos, cue_base_kern1, 0)
+set_weight(cueBaseNet.conv_pos, cue_base_kern2, 1)
 
 set_weight(pocketNet.conv_neg, pocket_kern_neg, 0)
 # pocketNet.conv_pos
@@ -291,8 +297,8 @@ while stay_cond():
     main_pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8) + 0.01
     horizont = int(frame_shape[0]//2 - main_pitch * pixels_per_pitch)
 
-    # maybe 0 -> horizont
-    roi = frame[0:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
+    roi_offset_y = min(frame_shape[0] // 2, max(horizont, 0))
+    roi = frame[roi_offset_y:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
 
     circles = extract_circles(roi)
     if len(circles):
@@ -300,15 +306,17 @@ while stay_cond():
     circles = sorted(circles, key=lambda item: item[2])
     ellipses = circles_to_ellipses(circles, main_pitch)
 
-    # roi_torch = torch.tensor(roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
-    # roi_torch = roi_torch.unsqueeze(0)
+    roi_torch = torch.tensor(roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
+    roi_torch = roi_torch.unsqueeze(0)
     # pockets_torch = pocketNet(roi_torch)
+    # cue_base_torch = cueBaseNet(roi_torch)
 
     #____DRAWING BEGINGS
     # pocket_coords_A = get_coords(roi, pockets_torch)
     # pocket_coords = [int(pocket_coords_A[i] + PocketNet.kern_size[i] * 0.5) for i in range(2)]
     # pocket_coords_B = [pocket_coords_A[i] + PocketNet.kern_size[i] for i in range(2)]
     # cv2.rectangle(roi, pocket_coords_A, pocket_coords_B, GREEN, thickness=3)
+    # get_coords(roi, pockets_torch)
 
     #____balls
     draw_ellipses(roi, ellipses, main_pitch)
