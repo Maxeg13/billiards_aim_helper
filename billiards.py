@@ -25,14 +25,14 @@ color_channels_num = 3
 gravity_init = [8.386473, 0., 6.984284]
 gravity = gravity_init
 width_crop_k = 0.23
-pixels_per_pitch = 591
+pixels_per_pitch = 850
 pitch_per_pixels = 1./pixels_per_pitch
 
 use_stream_out = True
 # use_stream_out = False
 
-use_cap = False
-# use_cap = True
+# use_cap = False
+use_cap = True
 
 frame_src_path = 'data/20260812_144025.jpg'
 # video_path = "data/20260811_135338.mp4"
@@ -68,6 +68,15 @@ class PocketNet(nn.Module):
     def forward(self, x):
         return [self.conv_pos(x), self.conv_neg(x)]
 
+class CueBaseNet(nn.Module):
+    kern_size_torch = (30, 100)
+    kern_size = [kern_size_torch[1], kern_size_torch[0]]
+    def __init__(self):
+        super().__init__()
+        self.conv_pos = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size_torch)
+        # self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size_torch)
+    def forward(self, x):
+        return [self.conv_pos(x)]
 
 pocketNet = PocketNet().to(device)
 # pocketNet.train()
@@ -270,7 +279,7 @@ while stay_cond():
     else:
         frame_src = cv2.imread(frame_src_path)
 
-    frame = cv2.resize(frame_src, None, fx=0.4, fy=0.4, interpolation=cv2.INTER_AREA)
+    frame = cv2.resize(frame_src, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
 
     # compense roll
     roll = numpy.atan(gravity[1] / gravity[0] + 1.111e-8) / np.pi * 180
@@ -279,9 +288,11 @@ while stay_cond():
     rotation_matrix = cv2.getRotationMatrix2D(center, -roll, scale = 1.)
     frame = cv2.warpAffine(frame, rotation_matrix, (frame_shape[1], frame_shape[0]))
 
-    roi = frame[:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
+    main_pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8) + 0.01
+    horizont = int(frame_shape[0]//2 - main_pitch * pixels_per_pitch)
 
-    main_pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8)
+    # maybe 0 -> horizont
+    roi = frame[0:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
 
     circles = extract_circles(roi)
     if len(circles):
@@ -289,22 +300,20 @@ while stay_cond():
     circles = sorted(circles, key=lambda item: item[2])
     ellipses = circles_to_ellipses(circles, main_pitch)
 
-    roi_torch = torch.tensor(roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
-    roi_torch = roi_torch.unsqueeze(0)
-    pockets_torch = pocketNet(roi_torch)
+    # roi_torch = torch.tensor(roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
+    # roi_torch = roi_torch.unsqueeze(0)
+    # pockets_torch = pocketNet(roi_torch)
 
-    #____drawing
-    horizont = int(frame_shape[0]//2 - main_pitch * pixels_per_pitch)
+    #____DRAWING BEGINGS
+    # pocket_coords_A = get_coords(roi, pockets_torch)
+    # pocket_coords = [int(pocket_coords_A[i] + PocketNet.kern_size[i] * 0.5) for i in range(2)]
+    # pocket_coords_B = [pocket_coords_A[i] + PocketNet.kern_size[i] for i in range(2)]
+    # cv2.rectangle(roi, pocket_coords_A, pocket_coords_B, GREEN, thickness=3)
 
-    # draw_rect(roi, pockets_torch, PocketNet)
-    pocket_coords_A = get_coords(roi, pockets_torch)
-    pocket_coords = [int(pocket_coords_A[i] + PocketNet.kern_size[i] * 0.5) for i in range(2)]
-    pocket_coords_B = [pocket_coords_A[i] + PocketNet.kern_size[i] for i in range(2)]
-    cv2.rectangle(roi, pocket_coords_A, pocket_coords_B, GREEN, thickness=3)
+    #____balls
     draw_ellipses(roi, ellipses, main_pitch)
 
     #____phantom ball
-    # target_ellipse = None
     phantom_center = None
     if len(ellipses) == 2:
         target_ellipse = ellipses[0]
@@ -319,7 +328,7 @@ while stay_cond():
     # horizont
     cv2.line(frame, (0, horizont), (frame_shape[1], horizont), GREEN, thickness=1, lineType=cv2.LINE_AA)
     # cue
-    cv2.line(frame, cue.p1, cue.p2, GREEN, thickness=1, lineType=cv2.LINE_AA)
+    # cv2.line(frame, cue.p1, cue.p2, GREEN, thickness=1, lineType=cv2.LINE_AA)
 
     # target traj
     if phantom_center is not None:
