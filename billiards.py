@@ -87,9 +87,9 @@ class CueBaseNet(nn.Module):
     def forward(self, x):
         return self.conv_pos(x)
 
-pocketNet = PocketNet().to(device)
-cueBaseNet = CueBaseNet().to(device)
-# pocketNet.train()
+pocket_net = PocketNet().to(device)
+cue_base_net = CueBaseNet().to(device)
+# pocket_net.train()
 # pocket_kern1 = io.read_image("data/pocket_kern1.jpg").to(torch.float32).to(device).detach()
 # pocket_kern2 = io.read_image("data/pocket_kern2.jpg").to(torch.float32).to(device).detach()
 cue_base_kern1 = io.read_image("data/cue_base_kern1.jpg").to(torch.float32).to(device).detach()
@@ -98,20 +98,20 @@ cue_base_kern2 = io.read_image("data/cue_base_kern2.jpg").to(torch.float32).to(d
 
 pocket_kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
 
-# pocketNet.conv_pos.weight.detach()
-# set_weight(pocketNet.conv_pos, pocket_kern1, 1)
-# set_weight(pocketNet.conv_pos, pocket_kern2, 0)
-# set_weight(pocketNet.conv_pos, kern3, 2)
+# pocket_net.conv_pos.weight.detach()
+# set_weight(pocket_net.conv_pos, pocket_kern1, 1)
+# set_weight(pocket_net.conv_pos, pocket_kern2, 0)
+# set_weight(pocket_net.conv_pos, kern3, 2)
 
-set_weight(cueBaseNet.conv_pos, cue_base_kern1, 0)
-set_weight(cueBaseNet.conv_pos, cue_base_kern2, 1)
+set_weight(cue_base_net.conv_pos, cue_base_kern1, 0)
+set_weight(cue_base_net.conv_pos, cue_base_kern2, 1)
 
-set_weight(pocketNet.conv_neg, pocket_kern_neg, 0)
-# pocketNet.conv_pos
-# set_weight(pocketNet, kern3, 2)
-# set_weight(pocketNet, kern4, 3)
+set_weight(pocket_net.conv_neg, pocket_kern_neg, 0)
+# pocket_net.conv_pos
+# set_weight(pocket_net, kern3, 2)
+# set_weight(pocket_net, kern4, 3)
 
-# pocketNet.eval()
+# pocket_net.eval()
 
 if use_stream_out:
     from flask import Flask, Response
@@ -308,8 +308,8 @@ while stay_cond():
 
     roi_torch = torch.tensor(roi.transpose(2, 0, 1), dtype=torch.float32, device=device)
     roi_torch = roi_torch.unsqueeze(0)
-    # pockets_torch = pocketNet(roi_torch)
-    # cue_base_torch = cueBaseNet(roi_torch)
+    # pockets_torch = pocket_net(roi_torch)
+    # cue_base_torch = cue_base_net(roi_torch)
 
     #____DRAWING BEGINGS
     # pocket_coords_A = get_coords(roi, pockets_torch)
@@ -360,7 +360,7 @@ if use_cap:
 
 # ______small analisys if needed
 # Get the kernel weights
-kernel = pocketNet.conv_pos.weight.to("cpu").detach().numpy()[:, 0]
+kernel = pocket_net.conv_pos.weight.to("cpu").detach().numpy()[:, 0]
 # To get it as a NumPy array (requires detaching from the graph)
 # kernel_numpy = conv.weight.detach().cpu().numpy()[0]
 kernel_numpy = kernel
