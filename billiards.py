@@ -82,18 +82,21 @@ class CueBaseNet(nn.Module):
     # kern_size = [kern_size[1], kern_size[0]]
     def __init__(self):
         super().__init__()
-        self.conv_pos = nn.Conv2d(color_channels_num, 2, CueBaseNet.kern_size)
+        self.conv_pos = nn.Conv2d(color_channels_num, 5, CueBaseNet.kern_size)
         # self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size)
     def forward(self, x):
         return self.conv_pos(x)
 
 pocket_net = PocketNet().to(device)
-cue_base_net = CueBaseNet().to(device)
+cue_net = CueBaseNet().to(device)
 # pocket_net.train()
 pocket_kern1 = io.read_image("data/pocket_kern1.jpg").to(torch.float32).to(device).detach()
 pocket_kern2 = io.read_image("data/pocket_kern2.jpg").to(torch.float32).to(device).detach()
 cue_base_kern1 = io.read_image("data/cue_base_kern1.jpg").to(torch.float32).to(device).detach()
 cue_base_kern2 = io.read_image("data/cue_base_kern2.jpg").to(torch.float32).to(device).detach()
+cue_base_kern3 = io.read_image("data/cue_base_kern3.jpg").to(torch.float32).to(device).detach()
+cue_base_kern4 = io.read_image("data/cue_base_kern4.jpg").to(torch.float32).to(device).detach()
+cue_base_kern5 = io.read_image("data/cue_base_kern5.jpg").to(torch.float32).to(device).detach()
 # kern3 = io.read_image("data/3.jpg").to(torch.float32).to(device).detach()
 
 pocket_kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
@@ -103,8 +106,12 @@ pocket_kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
 # set_weight(pocket_net.conv_pos, pocket_kern2, 0)
 # set_weight(pocket_net.conv_pos, kern3, 2)
 
-set_weight(cue_base_net.conv_pos, cue_base_kern1, 0)
-set_weight(cue_base_net.conv_pos, cue_base_kern2, 1)
+set_weight(cue_net.conv_pos, cue_base_kern1, 0)
+set_weight(cue_net.conv_pos, cue_base_kern2, 1)
+set_weight(cue_net.conv_pos, cue_base_kern3, 2)
+set_weight(cue_net.conv_pos, cue_base_kern4, 3)
+set_weight(cue_net.conv_pos, cue_base_kern5, 4)
+
 
 set_weight(pocket_net.conv_neg, pocket_kern_neg, 0)
 # pocket_net.conv_pos
@@ -310,7 +317,8 @@ while stay_cond():
 
     roi_offset_y = min(frame_shape[0] // 2, max(horizont, 0))
     roi = frame[roi_offset_y:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
-    roi_base = roi[-1 - 71: -1]
+    roi_cue_base = roi[-1 - 64: -1]
+    roi_cue_top = roi[-1 - 40 - 110: -1 - 110]
 
 
     circles = extract_circles(roi)
@@ -319,18 +327,32 @@ while stay_cond():
     circles = sorted(circles, key=lambda item: item[2])
     ellipses = circles_to_ellipses(circles, main_pitch)
 
-    roi_torch = torch.tensor(roi_base.transpose(2, 0, 1), dtype=torch.float32, device=device)
-    roi_torch = roi_torch.unsqueeze(0)
+    roi_cue_base_torch = torch.tensor(roi_cue_base.transpose(2, 0, 1), dtype=torch.float32, device=device)
+    roi_cue_base_torch = roi_cue_base_torch.unsqueeze(0)
     # pockets_torch = pocket_net(roi_torch)
-    cue_base_torch = cue_base_net(roi_torch)
+    cue_base_modeled = cue_net(roi_cue_base_torch)
 
-    cue_base_coords_A = get_coords_h(cue_base_torch)
+    cue_base_coords_A = get_coords_h(cue_base_modeled)
     if cue_base_coords_A is not None:
-        cue_base_coords = [cue_base_coords_A[i] + cue_base_net.kern_size[1-i] // 2 for i in range(2)]
+        cue_base_coords = [cue_base_coords_A[i] + cue_net.kern_size[1-i] // 2 for i in range(2)]
 
     #____DRAWING BEGINGS
     if cue_base_coords_A is not None:
-        cv2.circle(roi_base, cue_base_coords, radius=2, color=RED, thickness=3)
+        cv2.circle(roi_cue_base, cue_base_coords, radius=3, color=GREEN, thickness=3)
+        
+#____________
+    roi_cue_top_torch = torch.tensor(roi_cue_top.transpose(2, 0, 1), dtype=torch.float32, device=device)
+    roi_cue_top_torch = roi_cue_top_torch.unsqueeze(0)
+    # pockets_torch = pocket_net(roi_torch)
+    cue_top_modeled = cue_net(roi_cue_top_torch)
+
+    cue_top_coords_A = get_coords_h(cue_top_modeled)
+    if cue_top_coords_A is not None:
+        cue_top_coords = [cue_top_coords_A[i] + cue_net.kern_size[1-i] // 2 for i in range(2)]
+
+    #____DRAWING BEGINGS
+    if cue_top_coords_A is not None:
+        cv2.circle(roi_cue_top, cue_top_coords, radius=3, color=GREEN, thickness=3)
 
     # pocket_coords_A = get_coords(roi, pockets_torch)
     # pocket_coords = [int(pocket_coords_A[i] + PocketNet.kern_size[i] * 0.5) for i in range(2)]
