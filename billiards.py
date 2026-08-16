@@ -30,8 +30,11 @@ pitch_per_pixels = 1./pixels_per_pitch
 
 use_stream_out = True
 # use_stream_out = False
-# use_cap = False
-use_cap = True
+
+use_cap = False
+# use_cap = True
+
+frame_src_path = 'data/20260812_144025.jpg'
 # video_path = "data/20260811_135338.mp4"
 cam_url = "http://192.168.1.201:8080"
 # cam_url = "http://10.177.237.83:8080"
@@ -45,7 +48,7 @@ else:
 cue = Line(createP([732, 654]), createP([702, 567]))
 
 # Callback function to capture mouse movement
-def track_coords(event, x, y, flags, param):
+def track_mouse_coords(event, x, y, flags, param):
     if event == cv2.EVENT_MOUSEMOVE:
         # Prints live coordinates in your terminal
         # print(f"X: {x}, Y: {y}", end="\r")
@@ -53,7 +56,7 @@ def track_coords(event, x, y, flags, param):
     # if event == cv2.EVENT_LBUTTONUP:
 
 cv2.namedWindow("Image Window")
-cv2.setMouseCallback("Image Window", track_coords)
+cv2.setMouseCallback("Image Window", track_mouse_coords)
 
 class PocketNet(nn.Module):
     kern_size_torch = (50, 100)
@@ -139,8 +142,6 @@ if use_cap:
     if not cap.isOpened():
         print("Error: Could not open video file.")
         exit()
-else:
-    frame_src = cv2.imread('data/20260812_144025.jpg')
 
 def get_coords(frame, torch_from_model):
     max = torch.max(torch_from_model[0][0])
@@ -266,6 +267,8 @@ while stay_cond():
         if not ret:
             print("End of video file or cannot read the frame.")
             break
+    else:
+        frame_src = cv2.imread(frame_src_path)
 
     frame = cv2.resize(frame_src, None, fx=0.4, fy=0.4, interpolation=cv2.INTER_AREA)
 
