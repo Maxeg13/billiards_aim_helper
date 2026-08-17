@@ -69,7 +69,6 @@ def set_weight(conv, kern, idx):
 
 class PocketNet(nn.Module):
     kern_size = (50, 100)
-    # kern_size = [kern_size[1], kern_size[0]]
     def __init__(self):
         super().__init__()
         self.conv_pos = nn.Conv2d(color_channels_num, 2, PocketNet.kern_size)
@@ -79,7 +78,6 @@ class PocketNet(nn.Module):
 
 class CueBaseNet(nn.Module):
     kern_size = (20, 70)
-    # kern_size = [kern_size[1], kern_size[0]]
     def __init__(self):
         super().__init__()
         self.conv_pos = nn.Conv2d(color_channels_num, 5, CueBaseNet.kern_size)
@@ -167,13 +165,13 @@ if use_cap:
 
 def get_coords_h(torch_from_model):
     max = torch.max(torch_from_model[0])
-    idx_ij_pos = (torch_from_model[0] == max).nonzero()
-    print(f"max: {max}, idx: {idx_ij_pos[0, 0].item()}")
+    chan_ij_pos = (torch_from_model[0] == max).nonzero()[0]
+    print(f"max: {max}, chan: {chan_ij_pos[0].item()}")
 
     if max < 3400:
         return None
 
-    top_left = (idx_ij_pos[0, 2].item(), idx_ij_pos[0, 1].item())       # (x1, y1)
+    top_left = (chan_ij_pos[2].item(), chan_ij_pos[1].item())       # (x1, y1)
     return top_left
 
 def get_coords(torch_from_model):
@@ -234,6 +232,11 @@ def update_gravity():
     while True:
         response = requests.get(cam_url + "/sensors.json")
         gravity = response.json()["gravity"]["data"][-1][1]
+
+        # if flipped upside down
+        gravity[0] *= -1
+        gravity[1] *= -1
+
         time.sleep(0.4)
 
 gravity_thread = threading.Thread(target=update_gravity, args=())
@@ -317,8 +320,8 @@ while stay_cond():
 
     roi_offset_y = min(frame_shape[0] // 2, max(horizont, 0))
     roi = frame[roi_offset_y:, int(frame_shape[1] * width_crop_k) : int(frame_shape[1] * (1 - width_crop_k))]
-    roi_cue_base = roi[-1 - 64: -1]
-    roi_cue_top = roi[-1 - 40 - 110: -1 - 110]
+    roi_cue_base = roi[-1 - 60: -1]
+    roi_cue_top = roi[-1 - 70 - 135: -1 - 135]
 
 
     circles = extract_circles(roi)
@@ -335,10 +338,12 @@ while stay_cond():
     cue_base_coords_A = get_coords_h(cue_base_modeled)
     if cue_base_coords_A is not None:
         cue_base_coords = [cue_base_coords_A[i] + cue_net.kern_size[1-i] // 2 for i in range(2)]
+        cue_base_coords_B = [cue_base_coords_A[i] + cue_net.kern_size[1-i] for i in range(2)]
 
     #____DRAWING BEGINGS
     if cue_base_coords_A is not None:
         cv2.circle(roi_cue_base, cue_base_coords, radius=3, color=GREEN, thickness=3)
+        cv2.rectangle(roi_cue_base, cue_base_coords_A, cue_base_coords_B, GREEN, thickness=2)
         
 #____________
     roi_cue_top_torch = torch.tensor(roi_cue_top.transpose(2, 0, 1), dtype=torch.float32, device=device)
