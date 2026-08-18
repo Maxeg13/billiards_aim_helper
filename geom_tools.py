@@ -9,8 +9,11 @@ def l2P(x):
 	return res
 
 def createP(x):
-	return np.array(x)
-	
+	return np.array(x, dtype=np.float32)
+
+def convertToDrawableP(p):
+	return np.array(np.around(p), dtype=np.uint16)
+
 def rotateP(p, phi):
 	mat = np.array([[np.cos(phi), np.sin(phi)], 
 	[-np.sin(phi), np.cos(phi)]])
@@ -49,9 +52,14 @@ def isOutsidedP(p, line):
 	return vectorMult(p_, pp) < 0 and aligned
 
 def getAngleP(A, B):
+	# print(f"get angle, A: {A}, B: {B}")
 	C = A - B
 	sign = 1 if vectorMult(A, B) > 0 else -1
-	return np.arccos((1/(2*l1P(A)*l1P(B))) * (l2P(A) + l2P(B) - l2P(C))) * sign
+	arg = (1/(2*l1P(A)*l1P(B))) * (l2P(A) + l2P(B) - l2P(C))
+	arg = min(1., arg)
+	res = np.arccos(arg) * sign
+	# print(f"arg: {arg}, res: {res}")
+	return res
 
 class Line:
 	def __init__(self, p1, p2):

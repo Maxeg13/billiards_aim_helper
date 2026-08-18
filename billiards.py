@@ -24,7 +24,7 @@ color_channels_num = 3
 
 gravity_init = [8.386473, 0., 6.984284]
 gravity = gravity_init
-width_crop_k = 0.23
+width_crop_k = 0.1
 pixels_per_pitch = 850
 pitch_per_pixels = 1./pixels_per_pitch
 
@@ -58,6 +58,31 @@ def track_mouse_coords(event, x, y, flags, param):
 cv2.namedWindow("Image Window")
 cv2.setMouseCallback("Image Window", track_mouse_coords)
 
+def main_pitch_compute():
+    return numpy.atan(gravity[2] / gravity[0] + 1.111e-8) + 0.01
+
+def horizont_compute():
+    return int(frame_shape[0]//2 - main_pitch_compute() * pixels_per_pitch)
+
+def tripod_compute():
+    main_pitch = main_pitch_compute()
+    horizont_y = horizont_compute()
+    correct_k = 0.75
+    return horizont_y + pixels_per_pitch * correct_k * np.pi / 2 * (1 + np.tan(np.pi/2 - main_pitch))
+
+def compute_perspective_roll(p):
+    # main_pitch = main_pitch_compute()
+    # horizont_y = horizont_compute()
+    tripod_y = tripod_compute()
+    compense_k = 0.95
+
+    vert = createP([0., 10.])
+    vector = createP([frame_shape[1] * (1-2*width_crop_k)/2, tripod_y]) - p
+    vector[1] = min(vector[1], 8000)
+    vector /= l1P(vector)
+    return getAngleP(vert, vector) * compense_k
+
+
 class PocketNet(nn.Module):
     kern_size = (50, 100)
     def __init__(self):
@@ -69,21 +94,22 @@ class PocketNet(nn.Module):
 
 class CueEdgeNet(nn.Module):
     kern_size = (50, 20)
-    def __init__(self):
+    def __init__(self, channels):
         super().__init__()
-        self.conv_pos = nn.Conv2d(color_channels_num, 4, CueEdgeNet.kern_size)
+        self.conv_pos = nn.Conv2d(color_channels_num, channels, CueEdgeNet.kern_size)
         # self.conv_neg = nn.Conv2d(color_channels_num, 1, PocketNet.kern_size)
     def forward(self, x):
         return self.conv_pos(x)
 
 # pocket_net = PocketNet().to(device)
-cue_left_net = CueEdgeNet().to(device)
-cue_right_net = CueEdgeNet().to(device)
+cue_left_net = CueEdgeNet(channels=4).to(device)
+cue_right_net = CueEdgeNet(channels=4).to(device)
 # pocket_net.train()
 # pocket_kern1 = io.read_image("data/pocket_kern1.jpg").to(torch.float32).to(device).detach()
 # pocket_kern2 = io.read_image("data/pocket_kern2.jpg").to(torch.float32).to(device).detach()
 
-cue_left_kern1 = io.read_image("data/cue_left_kern0.jpg").to(torch.float32).to(device).detach()
+# TODO
+cue_left_kern1 = io.read_image("data/cue_left_kern2.jpg").to(torch.float32).to(device).detach()
 cue_left_kern2 = io.read_image("data/cue_left_kern1.jpg").to(torch.float32).to(device).detach()
 cue_left_kern3 = io.read_image("data/cue_left_kern2.jpg").to(torch.float32).to(device).detach()
 cue_left_kern4 = io.read_image("data/cue_left_kern3.jpg").to(torch.float32).to(device).detach()
@@ -94,6 +120,7 @@ cue_left_kern4 = io.read_image("data/cue_left_kern3.jpg").to(torch.float32).to(d
 cue_right_kern1 = io.read_image("data/cue_right_kern0.jpg").to(torch.float32).to(device).detach()
 cue_right_kern2 = io.read_image("data/cue_right_kern1.jpg").to(torch.float32).to(device).detach()
 cue_right_kern3 = io.read_image("data/cue_right_kern2.jpg").to(torch.float32).to(device).detach()
+cue_right_kern4 = io.read_image("data/cue_right_kern3.jpg").to(torch.float32).to(device).detach()
 
 
 # pocket_kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
@@ -152,18 +179,18 @@ def set_weight(conv, kern, idx):
     for i in range(color_channels_num):
         kern[i] -= mean[i]
 
-    kern[i] /= (torch.std(kern) ** 2) * N
+    kern[i] /= ((torch.std(kern) ** 2) * N)
     with torch.no_grad():
         conv.weight[idx].copy_(kern)
 
 
-def get_coords_h(orig, torch_modeled, tag):
+def get_coords_h(orig, torch_modeled, tag=None):
     kern_height, kern_width = 50, 20
 
     max_ = torch.max(torch_modeled[0])
-    compare_with = max_ * 0.995
-    chan_ij_arr = (torch_modeled[0] > compare_with).nonzero()
-    print(f"task to iter: {chan_ij_arr.shape[0]}")
+    compare_with = max_ * 0.99
+    chan_ij_arr = (torch_modeled[0] >= compare_with).nonzero()
+    # print(f"task to iter: {chan_ij_arr.shape[0]}")
     res_chal_ij_list = []
     
     for chan_ij in chan_ij_arr:
@@ -173,7 +200,8 @@ def get_coords_h(orig, torch_modeled, tag):
         res_chal_ij_list.append([elem, chan, i, j ])
     res = max(res_chal_ij_list, key = lambda x: x[0])
 
-    print(f"tag: {tag}, chan: {res[1].item()}, max: {res[0]}")
+    # if tag is not None:
+    #     print(f"tg: {tag}, ch: {res[1].item()}, max: {int(res[0]/100000)}")
 
     # if res[0] < 0.04:
     #     return None
@@ -198,6 +226,7 @@ set_weight(cue_left_net.conv_pos, cue_left_kern4, 3)
 set_weight(cue_right_net.conv_pos, cue_right_kern1, 0)
 set_weight(cue_right_net.conv_pos, cue_right_kern2, 1)
 set_weight(cue_right_net.conv_pos, cue_right_kern3, 2)
+set_weight(cue_right_net.conv_pos, cue_right_kern4, 3)
 
 # set_weight(pocket_net.conv_neg, pocket_kern_neg, 0)
 # pocket_net.conv_pos
@@ -223,15 +252,16 @@ def extract_circles(roi):
     return circles
 
 def draw_ellipses(roi, ellipses, main_pitch):
-    # Convert coordinates and radii to integers
-    ellipses = np.uint16(np.around(ellipses))
 
     for i, ellipse in enumerate(ellipses):
+        persp_roll = ellipse[4].copy()
+
+        ellipse = np.uint16(np.around(ellipse))
         center = ellipse[0:2]  # (x, y)
         major_radius, minor_radius = ellipse[2:4]
 
         # Draw the outer circle outline (green)
-        cv2.ellipse(roi, center, axes = (major_radius, minor_radius), angle=0, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+        cv2.ellipse(roi, center, axes = (major_radius, minor_radius), angle=persp_roll * to_degrees, startAngle=0, endAngle=360, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
 
         # Draw the center point (red)
         color = RED
@@ -282,12 +312,16 @@ def circles_to_ellipses(circles, main_pitch):
         center = (circle[0], circle[1])  # (x, y)
         radius = circle[2]
 
+        persp_roll = compute_perspective_roll(createP(circle[:2]))
+
         # Draw the outer circle outline (green)
-        angle_shift = (int(center[1]) - frame_shape[0] // 2) * pitch_per_pixels
-        # print(f"angle shift: {angle_shift}")
-        minor_radius = int(radius * abs(np.sin(main_pitch + angle_shift)))
+        horizont = horizont_compute()
+        angle = (int(center[1]) + roi_offset_y - horizont) * pitch_per_pixels
+        # print(f"yc: {center[1]}, yh: {horizont}")
+        # print(f"angle : {angle}")
+        minor_radius = int(radius * abs(np.sin(angle)))
         # circle.append(minor_radius)
-        ellipses.append(np.append(circle, minor_radius))
+        ellipses.append(np.append(circle, [minor_radius, persp_roll]))
     return ellipses
 
 # Main routine condition
@@ -328,25 +362,30 @@ while stay_cond():
     rotation_matrix = cv2.getRotationMatrix2D(center, -roll, scale = 1.)
     frame = cv2.warpAffine(frame, rotation_matrix, (frame_shape[1], frame_shape[0]))
 
-    # hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # hsv[:, :, 2] = np.clip(hsv[:, :, 2], 0, 160)    #
-    # frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
     # cv2.imshow("Image Window", frame)
     # cv2.waitKey(40)
     # continue
 
 
-    main_pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8) + 0.01
-    horizont = int(frame_shape[0]//2 - main_pitch * pixels_per_pitch)
+    main_pitch = main_pitch_compute()
+    horizont_y = horizont_compute()
+    tripod_y = tripod_compute()
 
-    roi_offset_y = min(frame_shape[0] // 2, max(horizont, 0))
+    roi_offset_y = min(frame_shape[0] // 2, max(horizont_y, 0))
     roi_offset_x = int(frame_shape[1] * width_crop_k)
     roi = frame[roi_offset_y:, roi_offset_x : int(frame_shape[1] - roi_offset_x)]
+
+    # cue roi
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    hsv[:, :, 2] = np.clip(hsv[:, :, 2], 0, 90)
+    # hsv[:, :, 1] = np.clip(hsv[:, :, 1], 120, 255)
+    roi_cue = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
     roi_cue_top_offset_y = -145
     roi_cue_base_offset_y = -15
-    roi_cue_base = roi[-1 - 80 + roi_cue_base_offset_y: -1 + roi_cue_base_offset_y]
-    roi_cue_top = roi[-1 - 81 + roi_cue_top_offset_y: -1 + roi_cue_top_offset_y]
+    roi_cue_base = roi_cue[-1 - 80 + roi_cue_base_offset_y: -1 + roi_cue_base_offset_y]
+    roi_cue_top = roi_cue[-1 - 81 + roi_cue_top_offset_y: -1 + roi_cue_top_offset_y]
 
     roi_cue_base_torch = torch.tensor(roi_cue_base.transpose(2, 0, 1), dtype=torch.float32, device=device)
     roi_cue_base_torch = roi_cue_base_torch.unsqueeze(0)
@@ -377,16 +416,16 @@ while stay_cond():
         pl1 = createP(cue_base_left_coords)
         pl1[1] += roi.shape[0] + roi_cue_base_offset_y - roi_cue_base.shape[0]
         # debug keypoint
-        cv2.circle(roi, pl1, radius=3, color=GREEN, thickness=3)
+        cv2.circle(roi, convertToDrawableP(pl1), radius=3, color=GREEN, thickness=3)
 
-    cue_base_right_coords_A = get_coords_h(roi_cue_base_torch, cue_base_right_modeled, "base right")
+    cue_base_right_coords_A = get_coords_h(roi_cue_base_torch, cue_base_right_modeled)
     if cue_base_right_coords_A is not None:
         cue_base_right_coords = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
         cue_base_right_coords_B = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] for i in range(2)]
         pr1 = createP(cue_base_right_coords)
         pr1[1] += roi.shape[0] + roi_cue_base_offset_y - roi_cue_base.shape[0]
         # debug keypoint
-        cv2.circle(roi, pr1, radius=3, color=GREEN, thickness=3)
+        cv2.circle(roi, convertToDrawableP(pr1), radius=3, color=GREEN, thickness=3)
 
     #________________________________
     cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top  left")
@@ -395,15 +434,15 @@ while stay_cond():
         pl2 = createP(cue_top_left_coords)
         pl2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
         # debug keypoint
-        cv2.circle(roi, pl2, radius=3, color=RED, thickness=3)
+        cv2.circle(roi, convertToDrawableP(pl2), radius=3, color=RED, thickness=3)
 
-    cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled, " top right")
+    cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled)
     if cue_top_right_coords_A is not None:
         cue_top_right_coords = [cue_top_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
         pr2 = createP(cue_top_right_coords)
         pr2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
         # debug keypoint
-        cv2.circle(roi, pr2, radius=3, color=RED, thickness=3)
+        cv2.circle(roi, convertToDrawableP(pr2), radius=3, color=RED, thickness=3)
 
 
 
@@ -418,20 +457,14 @@ while stay_cond():
         cue_exists = base_dist < 100 and top_dist < 100
 
     if cue_exists:
-        cv2.line(roi, pl1, pl2, RED, thickness=2, lineType=cv2.LINE_AA)
-        cv2.line(roi, pr1, pr2, RED, thickness=2, lineType=cv2.LINE_AA)
+        cv2.line(roi, convertToDrawableP(pl1), convertToDrawableP(pl2), RED, thickness=2, lineType=cv2.LINE_AA)
+        cv2.line(roi, convertToDrawableP(pr1), convertToDrawableP(pr2), RED, thickness=2, lineType=cv2.LINE_AA)
         # cue update
-        cue.p1 = middleP(pl1, pr1)
-        cue.p2 = middleP(pl2, pr2)
+        # cue.p1 = middleP(pl1, pr1)
+        # cue.p2 = middleP(pl2, pr2)
         vector = cue.p2 - cue.p1
         vector *= 2
         cue.p2 += vector
-
-        # cue_left_edge = Line()
-
-    # if cue_base_left_coords_A is not None:
-
-        # cv2.rectangle(roi_cue_base, cue_base_left_coords_A, cue_base_left_coords_B, GREEN, thickness=2)
 
 
     # pocket_coords_A = get_coords(roi, pockets_torch)
@@ -456,11 +489,14 @@ while stay_cond():
         cv2.ellipse(roi, phantom_center, axes = (int(major_r), int(minor_r)), angle=0, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
 
     # horizont
-    cv2.line(frame, (0, horizont), (frame_shape[1], horizont), GREEN, thickness=1, lineType=cv2.LINE_AA)
+    cv2.line(frame, (0, horizont_y), (frame_shape[1], horizont_y), GREEN, thickness=1, lineType=cv2.LINE_AA)
     # cue
-    cue.p1 = np.uint16(np.around(cue.p1))
-    cue.p2 = np.uint16(np.around(cue.p2))
-    cv2.line(roi, cue.p1, cue.p2, GREEN, thickness=2, lineType=cv2.LINE_AA)
+    cv2.line(roi, convertToDrawableP(cue.p1), convertToDrawableP(cue.p2), GREEN, thickness=2, lineType=cv2.LINE_AA)
+
+    # vertical
+    cv2.line(frame, [350, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
+    cv2.line(frame, [550, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
+    cv2.line(frame, [750, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
 
     # target traj
     if phantom_center is not None:
@@ -468,7 +504,7 @@ while stay_cond():
         vector = createP(target_center) - createP(phantom_center)
         vector *= 8
         vector = createP(target_center) + vector
-        cv2.line(roi, phantom_center, vector, RED, thickness=1, lineType=cv2.LINE_AA)
+        cv2.line(roi, phantom_center, convertToDrawableP(vector), RED, thickness=1, lineType=cv2.LINE_AA)
 
     frame_out = frame.copy()
     cv2.imshow("Image Window", frame_out)
