@@ -28,8 +28,8 @@ width_crop_k = 0.23
 pixels_per_pitch = 850
 pitch_per_pixels = 1./pixels_per_pitch
 
-use_stream_out = True
-# use_stream_out = False
+# use_stream_out = True
+use_stream_out = False
 
 # use_cap = False
 use_cap = True
@@ -57,16 +57,6 @@ def track_mouse_coords(event, x, y, flags, param):
 
 cv2.namedWindow("Image Window")
 cv2.setMouseCallback("Image Window", track_mouse_coords)
-
-def set_weight(conv, kern, idx):
-    N = (kern.shape[1] * kern.shape[2])
-    mean = torch.sum(kern, dim=[1,2]) / N
-    for i in range(color_channels_num):
-        kern[i] -= mean[i]
-        std = torch.std(kern[i])
-        kern[i] /= (std ** 2) * N
-    with torch.no_grad():
-        conv.weight[idx].copy_(kern)
 
 class PocketNet(nn.Module):
     kern_size = (50, 100)
@@ -108,26 +98,6 @@ cue_right_kern3 = io.read_image("data/cue_right_kern2.jpg").to(torch.float32).to
 
 # pocket_kern_neg = io.read_image("data/neg_1.jpg").to(torch.float32).detach()
 
-# pocket_net.conv_pos.weight.detach()
-# set_weight(pocket_net.conv_pos, pocket_kern1, 1)
-# set_weight(pocket_net.conv_pos, pocket_kern2, 0)
-# set_weight(pocket_net.conv_pos, kern3, 2)
-
-set_weight(cue_left_net.conv_pos, cue_left_kern1, 0)
-set_weight(cue_left_net.conv_pos, cue_left_kern2, 1)
-set_weight(cue_left_net.conv_pos, cue_left_kern3, 2)
-set_weight(cue_left_net.conv_pos, cue_left_kern4, 3)
-# set_weight(cue_left_net.conv_pos, cue_left_kern5, 4)
-# set_weight(cue_left_net.conv_pos, cue_left_kern6, 5)
-
-set_weight(cue_right_net.conv_pos, cue_right_kern1, 0)
-set_weight(cue_right_net.conv_pos, cue_right_kern2, 1)
-set_weight(cue_right_net.conv_pos, cue_right_kern3, 2)
-
-# set_weight(pocket_net.conv_neg, pocket_kern_neg, 0)
-# pocket_net.conv_pos
-# set_weight(pocket_net, kern3, 2)
-# set_weight(pocket_net, kern4, 3)
 
 # pocket_net.eval()
 
@@ -176,42 +146,63 @@ if use_cap:
         print("Error: Could not open video file.")
         exit()
 
+def set_weight(conv, kern, idx):
+    N = (kern.shape[1] * kern.shape[2])
+    mean = torch.sum(kern, dim=[1,2]) / N
+    for i in range(color_channels_num):
+        kern[i] -= mean[i]
+
+    kern[i] /= (torch.std(kern) ** 2) * N
+    with torch.no_grad():
+        conv.weight[idx].copy_(kern)
+
+
 def get_coords_h(orig, torch_modeled, tag):
-    # kern_height, kern_width = 50, 20
-    # height, width = torch_modeled.shape[2:]
-    # for i in range(height):
-    #     for j in range(width):
-    #         std_ = torch.std(orig[0, :, i:i+kern_height, j:j+kern_width])
-    #         torch_modeled[0, :, i, j] /= (std_.item() + 0.11001e-9)
+    kern_height, kern_width = 50, 20
 
-    max = torch.max(torch_modeled[0])
-    chan_ij_pos = (torch_modeled[0] == max).nonzero()[0]
+    max_ = torch.max(torch_modeled[0])
+    compare_with = max_ * 0.995
+    chan_ij_arr = (torch_modeled[0] > compare_with).nonzero()
+    print(f"task to iter: {chan_ij_arr.shape[0]}")
+    res_chal_ij_list = []
+    
+    for chan_ij in chan_ij_arr:
+        chan, i, j = chan_ij
+        # elem = torch_modeled[0,chan, i, j].item() / torch.std(orig[0, :, i:i+kern_height, j:j+kern_width]).item()
+        elem = torch_modeled[0,chan, i, j].item()
+        res_chal_ij_list.append([elem, chan, i, j ])
+    res = max(res_chal_ij_list, key = lambda x: x[0])
 
-    print(f"tag: {tag}, chan: {chan_ij_pos[0].item()}, max: {max}")
+    print(f"tag: {tag}, chan: {res[1].item()}, max: {res[0]}")
 
-    if max < 2.1:
-        return None
+    # if res[0] < 0.04:
+    #     return None
 
-    top_left = (chan_ij_pos[2].item(), chan_ij_pos[1].item())       # (x1, y1)
+    top_left = (res[3].item(), res[2].item())       # (x1, y1)
     return top_left
 
-def get_coords(torch_from_model):
-    max = torch.max(torch_from_model[0][0])
-    idx_ij_pos = (torch_from_model[0][0] == max).nonzero()
-    neg = torch_from_model[1][0, 0, idx_ij_pos[0, 1].item(), idx_ij_pos[0, 2].item()]
-    # print(f"neg: {neg}")
-    if neg > 4300:
-        # print(f"zero out negative: {idx_ij_pos}")
-        i, j = idx_ij_pos[0, 1].item(), idx_ij_pos[0, 2].item()
-        torch_from_model[0][0, :, i-9:i+9, j-9:j+9] *= 0.
-        max = torch.max(torch_from_model[0][0] )
-        idx_ij_pos = (torch_from_model[0][0] == max).nonzero()
-        # print(f"zero out negative, result: {idx_ij_pos}")
 
-    # _______drawing
-    # print(f"max: {max}, idx: {idx_ij_pos[0, 0].item()}")
-    top_left = (idx_ij_pos[0, 2].item(), idx_ij_pos[0, 1].item())       # (x1, y1)
-    return top_left
+
+# pocket_net.conv_pos.weight.detach()
+# set_weight(pocket_net.conv_pos, pocket_kern1, 1)
+# set_weight(pocket_net.conv_pos, pocket_kern2, 0)
+# set_weight(pocket_net.conv_pos, kern3, 2)
+
+set_weight(cue_left_net.conv_pos, cue_left_kern1, 0)
+set_weight(cue_left_net.conv_pos, cue_left_kern2, 1)
+set_weight(cue_left_net.conv_pos, cue_left_kern3, 2)
+set_weight(cue_left_net.conv_pos, cue_left_kern4, 3)
+# set_weight(cue_left_net.conv_pos, cue_left_kern5, 4)
+# set_weight(cue_left_net.conv_pos, cue_left_kern6, 5)
+
+set_weight(cue_right_net.conv_pos, cue_right_kern1, 0)
+set_weight(cue_right_net.conv_pos, cue_right_kern2, 1)
+set_weight(cue_right_net.conv_pos, cue_right_kern3, 2)
+
+# set_weight(pocket_net.conv_neg, pocket_kern_neg, 0)
+# pocket_net.conv_pos
+# set_weight(pocket_net, kern3, 2)
+# set_weight(pocket_net, kern4, 3)
 
 def extract_circles(roi):
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -309,7 +300,8 @@ def make_stay_cond():
         else:
             stay_ctr+=1
             # print(stay_ctr)
-            return True
+            # return True
+            return stay_ctr<2
     return func
 
 stay_cond = make_stay_cond()
@@ -336,11 +328,9 @@ while stay_cond():
     rotation_matrix = cv2.getRotationMatrix2D(center, -roll, scale = 1.)
     frame = cv2.warpAffine(frame, rotation_matrix, (frame_shape[1], frame_shape[0]))
 
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # hsv[:, :, 1] = np.clip(hsv[:, :, 1], 200, 255)
-    hsv[:, :, 2] = np.clip(hsv[:, :, 2], 0, 170)
-
-    frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    # hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    # hsv[:, :, 2] = np.clip(hsv[:, :, 2], 0, 160)    #
+    # frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
     # cv2.imshow("Image Window", frame)
     # cv2.waitKey(40)
@@ -380,7 +370,7 @@ while stay_cond():
     cue_top_left_modeled = cue_left_net(roi_cue_top_torch)
     cue_top_right_modeled = cue_right_net(roi_cue_top_torch)
 
-    cue_base_left_coords_A = get_coords_h(roi_cue_base_torch, cue_base_left_modeled, "base")
+    cue_base_left_coords_A = get_coords_h(roi_cue_base_torch, cue_base_left_modeled, "base  left")
     if cue_base_left_coords_A is not None:
         cue_base_left_coords = [cue_base_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
         cue_base_left_coords_B = [cue_base_left_coords_A[i] + cue_left_net.kern_size[1-i] for i in range(2)]
@@ -399,7 +389,7 @@ while stay_cond():
         cv2.circle(roi, pr1, radius=3, color=GREEN, thickness=3)
 
     #________________________________
-    cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top")
+    cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top  left")
     if cue_top_left_coords_A is not None:
         cue_top_left_coords = [cue_top_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
         pl2 = createP(cue_top_left_coords)
@@ -407,7 +397,7 @@ while stay_cond():
         # debug keypoint
         cv2.circle(roi, pl2, radius=3, color=RED, thickness=3)
 
-    cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled, " top")
+    cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled, " top right")
     if cue_top_right_coords_A is not None:
         cue_top_right_coords = [cue_top_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
         pr2 = createP(cue_top_right_coords)
@@ -430,6 +420,12 @@ while stay_cond():
     if cue_exists:
         cv2.line(roi, pl1, pl2, RED, thickness=2, lineType=cv2.LINE_AA)
         cv2.line(roi, pr1, pr2, RED, thickness=2, lineType=cv2.LINE_AA)
+        # cue update
+        cue.p1 = middleP(pl1, pr1)
+        cue.p2 = middleP(pl2, pr2)
+        vector = cue.p2 - cue.p1
+        vector *= 2
+        cue.p2 += vector
 
         # cue_left_edge = Line()
 
@@ -462,7 +458,9 @@ while stay_cond():
     # horizont
     cv2.line(frame, (0, horizont), (frame_shape[1], horizont), GREEN, thickness=1, lineType=cv2.LINE_AA)
     # cue
-    # cv2.line(frame, cue.p1, cue.p2, GREEN, thickness=1, lineType=cv2.LINE_AA)
+    cue.p1 = np.uint16(np.around(cue.p1))
+    cue.p2 = np.uint16(np.around(cue.p2))
+    cv2.line(roi, cue.p1, cue.p2, GREEN, thickness=2, lineType=cv2.LINE_AA)
 
     # target traj
     if phantom_center is not None:
@@ -486,10 +484,12 @@ if use_cap:
 
 # ______small analisys if needed
 # Get the kernel weights
-kernel = pocket_net.conv_pos.weight.to("cpu").detach().numpy()[:, 0]
+chan = 0
+color = 2
+kernel = cue_left_net.conv_pos.weight.to("cpu").detach().numpy()
 # To get it as a NumPy array (requires detaching from the graph)
 # kernel_numpy = conv.weight.detach().cpu().numpy()[0]
-kernel_numpy = kernel
+kernel_numpy = kernel[:, color]
 x = np.arange(kernel_numpy.shape[2])
 y = np.arange(kernel_numpy.shape[1])
 X, Y = np.meshgrid(x, y)
@@ -499,7 +499,7 @@ fig = plt.figure()
 # fig, (ax1, ax2) = plt.subplots(1, 2)
 ax1 = fig.add_subplot(211, projection='3d')
 ax2 = fig.add_subplot(212, projection='3d')
-surf1 = ax1.plot_surface(X, Y, kernel[0], cmap='viridis')
-surf2 = ax2.plot_surface(X, Y, kernel[0], cmap='viridis')
+surf1 = ax1.plot_surface(X, Y, kernel_numpy[0], cmap='viridis')
+surf2 = ax2.plot_surface(X, Y, kernel_numpy[2], cmap='viridis')
 plt.tight_layout() # Adjusts spacing
 plt.show()
