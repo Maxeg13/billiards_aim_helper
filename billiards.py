@@ -326,8 +326,8 @@ while stay_cond():
     else:
         frame_src = cv2.imread(frame_src_path)
 
-    frame = cv2.resize(frame_src, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
-
+    frame_src = cv2.resize(frame_src, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
+    frame = frame_src.copy()
 
     # compense roll
     roll = numpy.atan(gravity[1] / gravity[0] + 1.111e-8) / np.pi * 180
@@ -336,13 +336,24 @@ while stay_cond():
     rotation_matrix = cv2.getRotationMatrix2D(center, -roll, scale = 1.)
     frame = cv2.warpAffine(frame, rotation_matrix, (frame_shape[1], frame_shape[0]))
 
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    # hsv[:, :, 1] = np.clip(hsv[:, :, 1], 200, 255)
+    hsv[:, :, 2] = np.clip(hsv[:, :, 2], 0, 170)
+
+    frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+    # cv2.imshow("Image Window", frame)
+    # cv2.waitKey(40)
+    # continue
+
+
     main_pitch = numpy.atan(gravity[2] / gravity[0] + 1.111e-8) + 0.01
     horizont = int(frame_shape[0]//2 - main_pitch * pixels_per_pitch)
 
     roi_offset_y = min(frame_shape[0] // 2, max(horizont, 0))
     roi_offset_x = int(frame_shape[1] * width_crop_k)
     roi = frame[roi_offset_y:, roi_offset_x : int(frame_shape[1] - roi_offset_x)]
-    roi_cue_top_offset_y = -165
+    roi_cue_top_offset_y = -145
     roi_cue_base_offset_y = -15
     roi_cue_base = roi[-1 - 80 + roi_cue_base_offset_y: -1 + roi_cue_base_offset_y]
     roi_cue_top = roi[-1 - 81 + roi_cue_top_offset_y: -1 + roi_cue_top_offset_y]
@@ -365,9 +376,9 @@ while stay_cond():
 
     # ____CUE__EVALUATIONS____
     cue_base_left_modeled = cue_left_net(roi_cue_base_torch)
-    # cue_base_right_modeled = cue_right_net(roi_cue_base_torch)
+    cue_base_right_modeled = cue_right_net(roi_cue_base_torch)
     cue_top_left_modeled = cue_left_net(roi_cue_top_torch)
-    # cue_top_right_modeled = cue_right_net(roi_cue_top_torch)
+    cue_top_right_modeled = cue_right_net(roi_cue_top_torch)
 
     cue_base_left_coords_A = get_coords_h(roi_cue_base_torch, cue_base_left_modeled, "base")
     if cue_base_left_coords_A is not None:
@@ -378,14 +389,14 @@ while stay_cond():
         # debug keypoint
         cv2.circle(roi, pl1, radius=3, color=GREEN, thickness=3)
 
-    # cue_base_right_coords_A = get_coords_h(cue_base_right_modeled, "base right")
-    # if cue_base_right_coords_A is not None:
-    #     cue_base_right_coords = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
-    #     cue_base_right_coords_B = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] for i in range(2)]
-    #     pr1 = createP(cue_base_right_coords)
-    #     pr1[1] += roi.shape[0] + roi_cue_base_offset_y - roi_cue_base.shape[0]
-    #     # debug keypoint
-    #     # cv2.circle(roi, pr1, radius=3, color=GREEN, thickness=3)
+    cue_base_right_coords_A = get_coords_h(roi_cue_base_torch, cue_base_right_modeled, "base right")
+    if cue_base_right_coords_A is not None:
+        cue_base_right_coords = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
+        cue_base_right_coords_B = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] for i in range(2)]
+        pr1 = createP(cue_base_right_coords)
+        pr1[1] += roi.shape[0] + roi_cue_base_offset_y - roi_cue_base.shape[0]
+        # debug keypoint
+        cv2.circle(roi, pr1, radius=3, color=GREEN, thickness=3)
 
     #________________________________
     cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top")
@@ -396,22 +407,29 @@ while stay_cond():
         # debug keypoint
         cv2.circle(roi, pl2, radius=3, color=RED, thickness=3)
 
-    # cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, " top")
-    # if cue_top_right_coords_A is not None:
-    #     cue_top_right_coords = [cue_top_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
-    #     pr2 = createP(cue_top_right_coords)
-    #     pr2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
-    #     # debug keypoint
-    #     # cv2.circle(roi, pr2, radius=3, color=RED, thickness=3)
+    cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled, " top")
+    if cue_top_right_coords_A is not None:
+        cue_top_right_coords = [cue_top_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
+        pr2 = createP(cue_top_right_coords)
+        pr2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
+        # debug keypoint
+        cv2.circle(roi, pr2, radius=3, color=RED, thickness=3)
 
 
 
 
     #_______COMMON DRAWING BEGINGS
-    cue_exists = (cue_top_left_coords_A is not None) and (cue_base_left_coords_A is not None)
+    cue_exists = False
+    keypoints_found = (cue_top_left_coords_A is not None) and (cue_base_left_coords_A is not None) and\
+        (cue_top_right_coords_A is not None) and (cue_base_right_coords_A is not None)
+    if keypoints_found:
+        base_dist = l1P(pr1 - pl1)
+        top_dist = l1P(pr2-pl2)
+        cue_exists = base_dist < 100 and top_dist < 100
 
-    # if cue_exists:
-    #     cv2.line(roi, pl1, pl2, RED, thickness=2, lineType=cv2.LINE_AA)
+    if cue_exists:
+        cv2.line(roi, pl1, pl2, RED, thickness=2, lineType=cv2.LINE_AA)
+        cv2.line(roi, pr1, pr2, RED, thickness=2, lineType=cv2.LINE_AA)
 
         # cue_left_edge = Line()
 
