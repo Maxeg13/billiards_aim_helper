@@ -53,7 +53,7 @@ cue = Line(createP([200, 554]), createP([702, 467]))
 def track_mouse_coords(event, x, y, flags, param):
     if event == cv2.EVENT_MOUSEMOVE:
         # Prints live coordinates in your terminal
-        # print(f"X: {x}, Y: {y}", end="\r")
+        # print(f"X: {x}, Y: {y}")
         cue.p1 = createP([x - roi_offset_x, y - roi_offset_y])
     # if event == cv2.EVENT_LBUTTONUP:
 
@@ -287,13 +287,14 @@ gravity_thread = threading.Thread(target=update_gravity, args=())
 if use_cap:
     gravity_thread.start()
 
-def find_phantom(target_ellipse):
+def find_phantom(target_ellipse, alpha_scope):
     phantom_center = None
+    alpha_param = None
     target_center = target_ellipse[0:2]
     major_r, minor_r = target_ellipse[2:4]
     persp_roll = target_ellipse[4]
-    dist = 4
-    for alpha in np.arange(0, np.pi, 0.007):
+    dist = 8
+    for alpha in alpha_scope:
         x_off = major_r * np.cos(alpha) * 2
         y_off = minor_r * np.sin(alpha) * 2
 
@@ -311,7 +312,8 @@ def find_phantom(target_ellipse):
         if abs(dist_tmp) < abs(dist):
             dist = dist_tmp
             phantom_center = center
-    return phantom_center
+            alpha_param = alpha
+    return phantom_center, alpha_param
 
 def circles_to_ellipses(circles, main_pitch):
     ellipses = []
@@ -495,7 +497,10 @@ while stay_cond():
         major_r, minor_r = target_ellipse[2:4]
         persp_roll = target_ellipse[4]
 
-        phantom_center = find_phantom(target_ellipse)
+        phantom_center,alpha_param = find_phantom(target_ellipse, np.arange(0, np.pi, 0.2))
+        # need more precision
+        if phantom_center is not None:
+            phantom_center, alpha_param = find_phantom(target_ellipse, np.arange(alpha_param-0.1, alpha_param+0.1, 0.008))
 
     if phantom_center is not None:
         phantom_center = np.uint16(np.around(phantom_center))
