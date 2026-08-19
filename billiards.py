@@ -22,17 +22,18 @@ to_radians = np.pi/180
 to_degrees = 1/to_radians
 color_channels_num = 3
 
-gravity_init = [8.386473, 0., 6.984284]
+gravity_init = [8.386473, -0., 3.7]
 gravity = gravity_init
-width_crop_k = 0.1
+width_crop_k = 0.24
 pixels_per_pitch = 850
 pitch_per_pixels = 1./pixels_per_pitch
 
 # use_stream_out = True
 use_stream_out = False
 
-# use_cap = False
-use_cap = True
+cue_mocked = True
+use_cap = False
+# use_cap = True
 
 frame_src_path = 'data/20260812_144025.jpg'
 # video_path = "data/20260811_135338.mp4"
@@ -59,7 +60,7 @@ cv2.namedWindow("Image Window")
 cv2.setMouseCallback("Image Window", track_mouse_coords)
 
 def main_pitch_compute():
-    return numpy.atan(gravity[2] / gravity[0] + 1.111e-8) + 0.01
+    return numpy.atan(gravity[2] / (gravity[0]) + 1.111e-8) + 0.01
 
 def horizont_compute():
     return int(frame_shape[0]//2 - main_pitch_compute() * pixels_per_pitch)
@@ -289,16 +290,21 @@ def find_phantom(target_ellipse):
     phantom_center = None
     target_center = target_ellipse[0:2]
     major_r, minor_r = target_ellipse[2:4]
+    persp_roll = target_ellipse[4]
     dist = 4
     for alpha in np.arange(0, np.pi, 0.007):
         x_off = major_r * np.cos(alpha) * 2
         y_off = minor_r * np.sin(alpha) * 2
+
+        p_off = createP([x_off, y_off])
+        p_off = rotateP(p_off, persp_roll)
+
         center = target_center.copy()
-        center[0] += x_off
-        center[1] += y_off
+        center[0] += p_off[0]
+        center[1] += p_off[0]
 
         # compensate diff btw src and roi widths
-        cue_shifted = cue.addP(-createP([frame_shape[1] * width_crop_k, 0]))
+        cue_shifted = cue.addP(-createP([frame_shape[1] * width_crop_k, -roi_offset_y]))
         dist_tmp = signedDistP(createP(center), cue_shifted)
         # print(f"dist: {dist}")
         if abs(dist_tmp) < abs(dist):
@@ -334,8 +340,8 @@ def make_stay_cond():
         else:
             stay_ctr+=1
             # print(stay_ctr)
-            # return True
-            return stay_ctr<2
+            return True
+            # return stay_ctr<2
     return func
 
 stay_cond = make_stay_cond()
@@ -352,14 +358,14 @@ while stay_cond():
     else:
         frame_src = cv2.imread(frame_src_path)
 
-    frame_src = cv2.resize(frame_src, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
+    frame_src = cv2.resize(frame_src, None, fx=0.4, fy=0.4, interpolation=cv2.INTER_AREA)
     frame = frame_src.copy()
 
-    # compense roll
-    roll = numpy.atan(gravity[1] / gravity[0] + 1.111e-8) / np.pi * 180
+    # compense main roll
+    main_roll = numpy.atan(gravity[1] / (gravity[0] + 1.111e-8)) / np.pi * 180
     frame_shape = frame.shape[0:2]
     center = (frame_shape[1] // 2, frame_shape[0] // 2)
-    rotation_matrix = cv2.getRotationMatrix2D(center, -roll, scale = 1.)
+    rotation_matrix = cv2.getRotationMatrix2D(center, -main_roll, scale = 1.)
     frame = cv2.warpAffine(frame, rotation_matrix, (frame_shape[1], frame_shape[0]))
 
 
@@ -404,67 +410,69 @@ while stay_cond():
     # pockets_torch = pocket_net(roi_torch)
 
     # ____CUE__EVALUATIONS____
-    cue_base_left_modeled = cue_left_net(roi_cue_base_torch)
-    cue_base_right_modeled = cue_right_net(roi_cue_base_torch)
-    cue_top_left_modeled = cue_left_net(roi_cue_top_torch)
-    cue_top_right_modeled = cue_right_net(roi_cue_top_torch)
+    if not cue_mocked:
+        cue_base_left_modeled = cue_left_net(roi_cue_base_torch)
+        cue_base_right_modeled = cue_right_net(roi_cue_base_torch)
+        cue_top_left_modeled = cue_left_net(roi_cue_top_torch)
+        cue_top_right_modeled = cue_right_net(roi_cue_top_torch)
 
-    cue_base_left_coords_A = get_coords_h(roi_cue_base_torch, cue_base_left_modeled, "base  left")
-    if cue_base_left_coords_A is not None:
-        cue_base_left_coords = [cue_base_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
-        cue_base_left_coords_B = [cue_base_left_coords_A[i] + cue_left_net.kern_size[1-i] for i in range(2)]
-        pl1 = createP(cue_base_left_coords)
-        pl1[1] += roi.shape[0] + roi_cue_base_offset_y - roi_cue_base.shape[0]
-        # debug keypoint
-        cv2.circle(roi, convertToDrawableP(pl1), radius=3, color=GREEN, thickness=3)
+        cue_base_left_coords_A = get_coords_h(roi_cue_base_torch, cue_base_left_modeled, "base  left")
+        if cue_base_left_coords_A is not None:
+            cue_base_left_coords = [cue_base_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
+            cue_base_left_coords_B = [cue_base_left_coords_A[i] + cue_left_net.kern_size[1-i] for i in range(2)]
+            pl1 = createP(cue_base_left_coords)
+            pl1[1] += roi.shape[0] + roi_cue_base_offset_y - roi_cue_base.shape[0]
+            # debug keypoint
+            cv2.circle(roi, convertToDrawableP(pl1), radius=3, color=GREEN, thickness=3)
 
-    cue_base_right_coords_A = get_coords_h(roi_cue_base_torch, cue_base_right_modeled)
-    if cue_base_right_coords_A is not None:
-        cue_base_right_coords = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
-        cue_base_right_coords_B = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] for i in range(2)]
-        pr1 = createP(cue_base_right_coords)
-        pr1[1] += roi.shape[0] + roi_cue_base_offset_y - roi_cue_base.shape[0]
-        # debug keypoint
-        cv2.circle(roi, convertToDrawableP(pr1), radius=3, color=GREEN, thickness=3)
+        cue_base_right_coords_A = get_coords_h(roi_cue_base_torch, cue_base_right_modeled)
+        if cue_base_right_coords_A is not None:
+            cue_base_right_coords = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
+            cue_base_right_coords_B = [cue_base_right_coords_A[i] + cue_right_net.kern_size[1-i] for i in range(2)]
+            pr1 = createP(cue_base_right_coords)
+            pr1[1] += roi.shape[0] + roi_cue_base_offset_y - roi_cue_base.shape[0]
+            # debug keypoint
+            cv2.circle(roi, convertToDrawableP(pr1), radius=3, color=GREEN, thickness=3)
 
-    #________________________________
-    cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top  left")
-    if cue_top_left_coords_A is not None:
-        cue_top_left_coords = [cue_top_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
-        pl2 = createP(cue_top_left_coords)
-        pl2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
-        # debug keypoint
-        cv2.circle(roi, convertToDrawableP(pl2), radius=3, color=RED, thickness=3)
+        #________________________________
+        cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top  left")
+        if cue_top_left_coords_A is not None:
+            cue_top_left_coords = [cue_top_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
+            pl2 = createP(cue_top_left_coords)
+            pl2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
+            # debug keypoint
+            cv2.circle(roi, convertToDrawableP(pl2), radius=3, color=RED, thickness=3)
 
-    cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled)
-    if cue_top_right_coords_A is not None:
-        cue_top_right_coords = [cue_top_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
-        pr2 = createP(cue_top_right_coords)
-        pr2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
-        # debug keypoint
-        cv2.circle(roi, convertToDrawableP(pr2), radius=3, color=RED, thickness=3)
-
-
+        cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled)
+        if cue_top_right_coords_A is not None:
+            cue_top_right_coords = [cue_top_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
+            pr2 = createP(cue_top_right_coords)
+            pr2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
+            # debug keypoint
+            cv2.circle(roi, convertToDrawableP(pr2), radius=3, color=RED, thickness=3)
 
 
-    #_______COMMON DRAWING BEGINGS
-    cue_exists = False
-    keypoints_found = (cue_top_left_coords_A is not None) and (cue_base_left_coords_A is not None) and\
-        (cue_top_right_coords_A is not None) and (cue_base_right_coords_A is not None)
-    if keypoints_found:
-        base_dist = l1P(pr1 - pl1)
-        top_dist = l1P(pr2-pl2)
-        cue_exists = base_dist < 100 and top_dist < 100
 
-    if cue_exists:
-        cv2.line(roi, convertToDrawableP(pl1), convertToDrawableP(pl2), RED, thickness=2, lineType=cv2.LINE_AA)
-        cv2.line(roi, convertToDrawableP(pr1), convertToDrawableP(pr2), RED, thickness=2, lineType=cv2.LINE_AA)
-        # cue update
-        # cue.p1 = middleP(pl1, pr1)
-        # cue.p2 = middleP(pl2, pr2)
-        vector = cue.p2 - cue.p1
-        vector *= 2
-        cue.p2 += vector
+
+        #_______COMMON DRAWING BEGINGS
+        cue_exists = False
+        keypoints_found = (cue_top_left_coords_A is not None) and (cue_base_left_coords_A is not None) and\
+            (cue_top_right_coords_A is not None) and (cue_base_right_coords_A is not None)
+        if keypoints_found:
+            base_dist = l1P(pr1 - pl1)
+            top_dist = l1P(pr2-pl2)
+            cue_exists = base_dist < 100 and top_dist < 100
+
+        if cue_exists:
+            cv2.line(roi, convertToDrawableP(pl1), convertToDrawableP(pl2), RED, thickness=2, lineType=cv2.LINE_AA)
+            cv2.line(roi, convertToDrawableP(pr1), convertToDrawableP(pr2), RED, thickness=2, lineType=cv2.LINE_AA)
+            # cue update
+
+            cue.p1 = middleP(pl1, pr1)
+            cue.p2 = middleP(pl2, pr2)
+            vector = cue.p2 - cue.p1
+            vector *= 2
+            cue.p2 += vector
 
 
     # pocket_coords_A = get_coords(roi, pockets_torch)
@@ -482,21 +490,24 @@ while stay_cond():
         target_ellipse = ellipses[0]
         target_center = target_ellipse[0:2]
         major_r, minor_r = target_ellipse[2:4]
+        persp_roll = target_ellipse[4]
+
         phantom_center = find_phantom(target_ellipse)
 
     if phantom_center is not None:
         phantom_center = np.uint16(np.around(phantom_center))
-        cv2.ellipse(roi, phantom_center, axes = (int(major_r), int(minor_r)), angle=0, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
+        cv2.ellipse(roi, phantom_center, axes = (int(major_r), int(minor_r)), angle=persp_roll * to_degrees, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
 
     # horizont
     cv2.line(frame, (0, horizont_y), (frame_shape[1], horizont_y), GREEN, thickness=1, lineType=cv2.LINE_AA)
     # cue
     cv2.line(roi, convertToDrawableP(cue.p1), convertToDrawableP(cue.p2), GREEN, thickness=2, lineType=cv2.LINE_AA)
 
-    # vertical
-    cv2.line(frame, [350, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
-    cv2.line(frame, [550, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
-    cv2.line(frame, [750, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
+    # to demonstrate perspective algorithm
+    # verticals
+    # cv2.line(frame, [350, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
+    # cv2.line(frame, [550, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
+    # cv2.line(frame, [750, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
 
     # target traj
     if phantom_center is not None:
