@@ -46,14 +46,15 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-cue = Line(createP([732, 654]), createP([702, 567]))
+# lives in roi
+cue = Line(createP([200, 554]), createP([702, 467]))
 
 # Callback function to capture mouse movement
 def track_mouse_coords(event, x, y, flags, param):
     if event == cv2.EVENT_MOUSEMOVE:
         # Prints live coordinates in your terminal
         # print(f"X: {x}, Y: {y}", end="\r")
-        cue.p1 = createP([x, y])
+        cue.p1 = createP([x - roi_offset_x, y - roi_offset_y])
     # if event == cv2.EVENT_LBUTTONUP:
 
 cv2.namedWindow("Image Window")
@@ -297,15 +298,15 @@ def find_phantom(target_ellipse):
         y_off = minor_r * np.sin(alpha) * 2
 
         p_off = createP([x_off, y_off])
-        p_off = rotateP(p_off, persp_roll)
+        p_off = rotateP(p_off, -persp_roll)
 
         center = target_center.copy()
         center[0] += p_off[0]
-        center[1] += p_off[0]
+        center[1] += p_off[1]
 
         # compensate diff btw src and roi widths
-        cue_shifted = cue.addP(-createP([frame_shape[1] * width_crop_k, -roi_offset_y]))
-        dist_tmp = signedDistP(createP(center), cue_shifted)
+        # cue_shifted = cue.addP(-createP([frame_shape[1] * width_crop_k, -roi_offset_y]))
+        dist_tmp = signedDistP(createP(center), cue)
         # print(f"dist: {dist}")
         if abs(dist_tmp) < abs(dist):
             dist = dist_tmp
@@ -405,6 +406,8 @@ while stay_cond():
     if len(circles):
         circles = circles[0]
     circles = sorted(circles, key=lambda item: item[2])
+    if cue_mocked:
+        cue.p2 = createP(circles[-1][:2])
     ellipses = circles_to_ellipses(circles, main_pitch)
 
     # pockets_torch = pocket_net(roi_torch)
@@ -501,7 +504,9 @@ while stay_cond():
     # horizont
     cv2.line(frame, (0, horizont_y), (frame_shape[1], horizont_y), GREEN, thickness=1, lineType=cv2.LINE_AA)
     # cue
-    cv2.line(roi, convertToDrawableP(cue.p1), convertToDrawableP(cue.p2), GREEN, thickness=2, lineType=cv2.LINE_AA)
+
+    shift = createP([roi_offset_x, roi_offset_y])
+    cv2.line(frame, convertToDrawableP(cue.p1 + shift), convertToDrawableP(cue.p2 + shift), GREEN, thickness=2, lineType=cv2.LINE_AA)
 
     # to demonstrate perspective algorithm
     # verticals
