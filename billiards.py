@@ -24,23 +24,27 @@ color_channels_num = 3
 
 gravity_init = [8.386473, -0., 3.7]
 gravity = gravity_init
-width_crop_k = 0.24
+width_crop_k = 0.19
 pixels_per_pitch = 850
 pitch_per_pixels = 1./pixels_per_pitch
 
-# use_stream_out = True
-use_stream_out = False
-
-# cue_mocked = True
-cue_mocked = False
+use_stream_out = True
+# use_stream_out = False
+#
+# write_video = True
+write_video = False
+#
+cue_mocked = True
+# cue_mocked = False
+#
 # use_cap = False
 use_cap = True
 
-write_video = False
 frame_src_path = 'data/20260812_144025.jpg'
 # video_path = "data/20260811_135338.mp4"
 cam_url = "http://192.168.1.202:8080"
 # cam_url = "http://10.177.237.83:8080"
+
 video_path = "data/20260811_173328.mp4"
 
 if torch.cuda.is_available():
@@ -63,8 +67,8 @@ cv2.namedWindow("Image Window")
 cv2.setMouseCallback("Image Window", track_mouse_coords)
 
 if write_video:
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter('output.mp4', fourcc, 20.0, (1152, 648))
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    out = cv2.VideoWriter('output.avi', fourcc, 20.0, (1152, 648))
 
 def main_pitch_compute():
     return numpy.atan(gravity[2] / (gravity[0]) + 1.111e-8) + 0.01
@@ -139,6 +143,9 @@ cue_right_kern4 = io.read_image("data/cue_right_kern3.jpg").to(torch.float32).to
 def shift_to_src():
     return convertToDrawableP([roi_offset_x, roi_offset_y])
 
+def shift_to_src_debug():
+    return createP([roi_offset_x, roi_offset_y])
+
 if use_stream_out:
     from flask import Flask, Response
 
@@ -169,7 +176,7 @@ if use_stream_out:
         return '<h1>OpenCV MJPEG Stream</h1><img src="/video" width="640">'
 
     def startFlask():
-        app.run(host='0.0.0.0', port=5000, threaded=True)
+        app.run(host='0.0.0.0', port=5000, threaded=False)
 
     flaskThread = threading.Thread(target=startFlask, args=())
     flaskThread.start()
@@ -217,7 +224,7 @@ def get_coords_h(orig, torch_modeled, tag=None):
     # if res[0] < 0.04:
     #     return None
 
-    top_left = (res[3].item(), res[2].item())       # (x1, y1)
+    top_left = [res[3].item(), res[2].item()]       # (x1, y1)
     return top_left
 
 
@@ -250,11 +257,11 @@ def extract_circles(roi):
         image=gray_roi,
         method=cv2.HOUGH_GRADIENT,
         dp=1,
-        minDist=100,
-        param1=90,
-        param2=50,
+        minDist=80,
+        param1=86,
+        param2=46,
         minRadius=30,
-        maxRadius=60
+        maxRadius=70
     )
 
     if circles is None:
@@ -401,7 +408,7 @@ while stay_cond():
     # hsv[:, :, 1] = np.clip(hsv[:, :, 1], 120, 255)
     roi_cue = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-    roi_cue_top_offset_y = -145
+    roi_cue_top_offset_y = -135
     roi_cue_base_offset_y = -15
     roi_cue_base = roi_cue[-1 - 80 + roi_cue_base_offset_y: -1 + roi_cue_base_offset_y]
     roi_cue_top = roi_cue[-1 - 81 + roi_cue_top_offset_y: -1 + roi_cue_top_offset_y]
@@ -417,9 +424,9 @@ while stay_cond():
     circles = extract_circles(roi)
     if len(circles):
         circles = circles[0]
-    circles = sorted(circles, key=lambda item: item[2])
-    if cue_mocked:
-        cue.p2 = createP(circles[-1][:2])
+        circles = sorted(circles, key=lambda item: item[2])
+        if cue_mocked:
+            cue.p2 = createP(circles[-1][:2])
     ellipses = circles_to_ellipses(circles, main_pitch)
 
     # pockets_torch = pocket_net(roi_torch)
@@ -434,6 +441,7 @@ while stay_cond():
 
         cue_base_left_coords_A = get_coords_h(roi_cue_base_torch, cue_base_left_modeled, "base  left")
         if cue_base_left_coords_A is not None:
+            cue_base_left_coords_A[0] -= 2
             cue_base_left_coords = [cue_base_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
             cue_base_left_coords_B = [cue_base_left_coords_A[i] + cue_left_net.kern_size[1-i] for i in range(2)]
             pl1 = createP(cue_base_left_coords)
@@ -453,6 +461,7 @@ while stay_cond():
         #________________________________
         cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top  left")
         if cue_top_left_coords_A is not None:
+            cue_top_left_coords_A[0] -= 2
             cue_top_left_coords = [cue_top_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
             pl2 = createP(cue_top_left_coords)
             pl2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
@@ -501,8 +510,8 @@ while stay_cond():
 
     #____phantom ball
     phantom_center = None
-    if len(ellipses) == 2:
-        target_ellipse = ellipses[0]
+    if len(ellipses) >= 2:
+        target_ellipse = ellipses[-2]
         target_center = target_ellipse[0:2]
         major_r, minor_r = target_ellipse[2:4]
         persp_roll = target_ellipse[4]
@@ -514,11 +523,13 @@ while stay_cond():
 
             div = -(minor_r/major_r)/np.tan(alpha_param)
             sign = -1. if div>0 else 1.
-            print(sign)
+            # print(sign)
             bounceP = createP([1., div])
             bounceP = rotateP(bounceP, -persp_roll)
             bounceP /= l1P(bounceP)
             bounceP *= 450 * sign
+
+            convertToDrawableP(phantom_center + bounceP) + shift_to_src()
 
     # draw phantom
     if phantom_center is not None:
@@ -544,9 +555,10 @@ while stay_cond():
         # target_center = np.uint16(np.around(target_center))
         vector = createP(target_center) - createP(phantom_center)
         vector /= l1P(vector)
-        vector *= 300
-        vector = createP(target_center) + vector
-        cv2.line(frame, convertToDrawableP(phantom_center) + shift_to_src(), convertToDrawableP(vector) + shift_to_src(), RED, thickness=1, lineType=cv2.LINE_AA)
+        vector *= 240
+        pt2 = createP(target_center) + vector
+
+        cv2.line(frame, convertToDrawableP(target_center) + shift_to_src(), (convertToDrawableP(pt2)) + (shift_to_src()), RED, thickness=1, lineType=cv2.LINE_AA)
 
     frame_out = frame.copy()
     cv2.imshow("Image Window", frame_out)

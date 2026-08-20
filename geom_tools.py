@@ -12,7 +12,7 @@ def createP(x):
 	return np.array(x, dtype=np.float32)
 
 def convertToDrawableP(p):
-	return np.array(np.around(p), dtype=np.uint16)
+	return np.array(np.around(p), dtype=np.int16)
 
 def rotateP(p, phi):
 	mat = np.array([[np.cos(phi), np.sin(phi)], 
