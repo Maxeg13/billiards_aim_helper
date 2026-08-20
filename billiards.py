@@ -360,6 +360,7 @@ stay_cond = make_stay_cond()
 
 # Main routine
 while stay_cond():
+    #_______CV METHODS BEGIN______________
     if use_cap:
         ret, frame_src = cap.read()
 
@@ -467,9 +468,9 @@ while stay_cond():
             cv2.circle(roi, convertToDrawableP(pr2), radius=3, color=RED, thickness=3)
 
 
+        #_______CV METHODS OVER_______
 
 
-        #_______COMMON DRAWING BEGINGS
         keypoints_found = (cue_top_left_coords_A is not None) and (cue_base_left_coords_A is not None) and\
             (cue_top_right_coords_A is not None) and (cue_base_right_coords_A is not None)
         if keypoints_found:
