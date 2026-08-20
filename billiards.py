@@ -130,6 +130,9 @@ cue_right_kern4 = io.read_image("data/cue_right_kern3.jpg").to(torch.float32).to
 
 # pocket_net.eval()
 
+def shift_to_src():
+    return convertToDrawableP([roi_offset_x, roi_offset_y])
+
 if use_stream_out:
     from flask import Flask, Response
 
@@ -502,18 +505,27 @@ while stay_cond():
         if phantom_center is not None:
             phantom_center, alpha_param = find_phantom(target_ellipse, np.arange(alpha_param-0.1, alpha_param+0.1, 0.008))
 
+            div = -(minor_r/major_r)/np.tan(alpha_param)
+            sign = -1. if div>0 else 1.
+            print(sign)
+            bounceP = createP([1., div])
+            bounceP = rotateP(bounceP, -persp_roll)
+            bounceP /= l1P(bounceP)
+            bounceP *= 450 * sign
+
+    # draw phantom
     if phantom_center is not None:
         phantom_center = np.uint16(np.around(phantom_center))
         cv2.ellipse(roi, phantom_center, axes = (int(major_r), int(minor_r)), angle=persp_roll * to_degrees, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
+        cv2.line(frame, convertToDrawableP(phantom_center) + shift_to_src(), convertToDrawableP(phantom_center + bounceP) + shift_to_src(), RED, thickness=1, lineType=cv2.LINE_AA)
 
     # horizont
     cv2.line(frame, (0, horizont_y), (frame_shape[1], horizont_y), GREEN, thickness=1, lineType=cv2.LINE_AA)
+
     # cue
+    cv2.line(frame, convertToDrawableP(cue.p1 + shift_to_src()), convertToDrawableP(cue.p2 + shift_to_src()), GREEN, thickness=2, lineType=cv2.LINE_AA)
 
-    shift = createP([roi_offset_x, roi_offset_y])
-    cv2.line(frame, convertToDrawableP(cue.p1 + shift), convertToDrawableP(cue.p2 + shift), GREEN, thickness=2, lineType=cv2.LINE_AA)
-
-    # to demonstrate perspective algorithm
+    # to demonstrate perspective transform algorithm
     # verticals
     # cv2.line(frame, [350, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
     # cv2.line(frame, [550, 0] , [center[0], int(tripod_y)], GREEN, thickness=2, lineType=cv2.LINE_AA)
@@ -521,11 +533,12 @@ while stay_cond():
 
     # target traj
     if phantom_center is not None:
-        target_center = np.uint16(np.around(target_center))
+        # target_center = np.uint16(np.around(target_center))
         vector = createP(target_center) - createP(phantom_center)
-        vector *= 8
+        vector /= l1P(vector)
+        vector *= 300
         vector = createP(target_center) + vector
-        cv2.line(roi, phantom_center, convertToDrawableP(vector), RED, thickness=1, lineType=cv2.LINE_AA)
+        cv2.line(frame, convertToDrawableP(phantom_center) + shift_to_src(), convertToDrawableP(vector) + shift_to_src(), RED, thickness=1, lineType=cv2.LINE_AA)
 
     frame_out = frame.copy()
     cv2.imshow("Image Window", frame_out)
