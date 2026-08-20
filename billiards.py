@@ -31,13 +31,14 @@ pitch_per_pixels = 1./pixels_per_pitch
 # use_stream_out = True
 use_stream_out = False
 
-cue_mocked = True
-use_cap = False
-# use_cap = True
+# cue_mocked = True
+cue_mocked = False
+# use_cap = False
+use_cap = True
 
 frame_src_path = 'data/20260812_144025.jpg'
 # video_path = "data/20260811_135338.mp4"
-cam_url = "http://192.168.1.201:8080"
+cam_url = "http://192.168.1.202:8080"
 # cam_url = "http://10.177.237.83:8080"
 video_path = "data/20260811_173328.mp4"
 
@@ -364,7 +365,7 @@ while stay_cond():
     else:
         frame_src = cv2.imread(frame_src_path)
 
-    frame_src = cv2.resize(frame_src, None, fx=0.4, fy=0.4, interpolation=cv2.INTER_AREA)
+    frame_src = cv2.resize(frame_src, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
     frame = frame_src.copy()
 
     # compense main roll
@@ -418,6 +419,7 @@ while stay_cond():
     # pockets_torch = pocket_net(roi_torch)
 
     # ____CUE__EVALUATIONS____
+    cue_exists = False
     if not cue_mocked:
         cue_base_left_modeled = cue_left_net(roi_cue_base_torch)
         cue_base_right_modeled = cue_right_net(roi_cue_base_torch)
@@ -463,7 +465,6 @@ while stay_cond():
 
 
         #_______COMMON DRAWING BEGINGS
-        cue_exists = False
         keypoints_found = (cue_top_left_coords_A is not None) and (cue_base_left_coords_A is not None) and\
             (cue_top_right_coords_A is not None) and (cue_base_right_coords_A is not None)
         if keypoints_found:
@@ -523,7 +524,8 @@ while stay_cond():
     cv2.line(frame, (0, horizont_y), (frame_shape[1], horizont_y), GREEN, thickness=1, lineType=cv2.LINE_AA)
 
     # cue
-    cv2.line(frame, convertToDrawableP(cue.p1 + shift_to_src()), convertToDrawableP(cue.p2 + shift_to_src()), GREEN, thickness=2, lineType=cv2.LINE_AA)
+    if cue_mocked or cue_exists:
+        cv2.line(frame, convertToDrawableP(cue.p1 + shift_to_src()), convertToDrawableP(cue.p2 + shift_to_src()), GREEN, thickness=2, lineType=cv2.LINE_AA)
 
     # to demonstrate perspective transform algorithm
     # verticals
