@@ -36,6 +36,7 @@ cue_mocked = False
 # use_cap = False
 use_cap = True
 
+write_video = False
 frame_src_path = 'data/20260812_144025.jpg'
 # video_path = "data/20260811_135338.mp4"
 cam_url = "http://192.168.1.202:8080"
@@ -60,6 +61,10 @@ def track_mouse_coords(event, x, y, flags, param):
 
 cv2.namedWindow("Image Window")
 cv2.setMouseCallback("Image Window", track_mouse_coords)
+
+if write_video:
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter('output.mp4', fourcc, 20.0, (1152, 648))
 
 def main_pitch_compute():
     return numpy.atan(gravity[2] / (gravity[0]) + 1.111e-8) + 0.01
@@ -544,6 +549,9 @@ while stay_cond():
 
     frame_out = frame.copy()
     cv2.imshow("Image Window", frame_out)
+
+    if write_video:
+        out.write(frame_out)
 
     if use_cap:
         if cv2.waitKey(1) & 0xFF == ord('q'):
