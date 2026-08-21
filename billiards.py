@@ -47,6 +47,9 @@ cam_url = "http://192.168.1.202:8080"
 
 video_path = "data/20260811_173328.mp4"
 
+def print_stub(args):
+    pass
+
 if torch.cuda.is_available():
     device = torch.device("cuda")
 else:
@@ -59,7 +62,7 @@ cue = Line(createP([200, 554]), createP([702, 467]))
 def track_mouse_coords(event, x, y, flags, param):
     if event == cv2.EVENT_MOUSEMOVE:
         # Prints live coordinates in your terminal
-        # print(f"X: {x}, Y: {y}")
+        print_stub(f"X: {x}, Y: {y}")
         cue.p1 = createP([x - roi_offset_x, y - roi_offset_y])
     # if event == cv2.EVENT_LBUTTONUP:
 
@@ -208,7 +211,7 @@ def get_coords_h(orig, torch_modeled, tag=None):
     max_ = torch.max(torch_modeled[0])
     compare_with = max_ * 0.99
     chan_ij_arr = (torch_modeled[0] >= compare_with).nonzero()
-    # print(f"task to iter: {chan_ij_arr.shape[0]}")
+    # print_stub(f"task to iter: {chan_ij_arr.shape[0]}")
     res_chal_ij_list = []
     
     for chan_ij in chan_ij_arr:
@@ -218,8 +221,8 @@ def get_coords_h(orig, torch_modeled, tag=None):
         res_chal_ij_list.append([elem, chan, i, j ])
     res = max(res_chal_ij_list, key = lambda x: x[0])
 
-    # if tag is not None:
-    #     print(f"tg: {tag}, ch: {res[1].item()}, max: {int(res[0]/100000)}")
+    if tag is not None:
+        print_stub(f"tg: {tag}, ch: {res[1].item()}, max: {int(res[0]/100000)}")
 
     # if res[0] < 0.04:
     #     return None
@@ -270,7 +273,6 @@ def extract_circles(roi):
     return circles
 
 def draw_ellipses(roi, ellipses, main_pitch):
-
     for i, ellipse in enumerate(ellipses):
         persp_roll = ellipse[4].copy()
 
@@ -309,7 +311,7 @@ def find_phantom(target_ellipse, alpha_scope):
     target_center = target_ellipse[0:2]
     major_r, minor_r = target_ellipse[2:4]
     persp_roll = target_ellipse[4]
-    dist = 8
+    dist = 11
     for alpha in alpha_scope:
         x_off = major_r * np.cos(alpha) * 2
         y_off = minor_r * np.sin(alpha) * 2
@@ -324,7 +326,7 @@ def find_phantom(target_ellipse, alpha_scope):
         # compensate diff btw src and roi widths
         # cue_shifted = cue.addP(-createP([frame_shape[1] * width_crop_k, -roi_offset_y]))
         dist_tmp = signedDistP(createP(center), cue)
-        # print(f"dist: {dist}")
+        print(f"dist: {dist}")
         if abs(dist_tmp) < abs(dist):
             dist = dist_tmp
             phantom_center = center
@@ -342,8 +344,8 @@ def circles_to_ellipses(circles, main_pitch):
         # Draw the outer circle outline (green)
         horizont = horizont_compute()
         angle = (int(center[1]) + roi_offset_y - horizont) * pitch_per_pixels
-        # print(f"yc: {center[1]}, yh: {horizont}")
-        # print(f"angle : {angle}")
+        print_stub(f"yc: {center[1]}, yh: {horizont}")
+        print_stub(f"angle : {angle}")
         minor_radius = int(radius * abs(np.sin(angle)))
         # circle.append(minor_radius)
         ellipses.append(np.append(circle, [minor_radius, persp_roll]))
@@ -358,7 +360,7 @@ def make_stay_cond():
             return cap.isOpened()
         else:
             stay_ctr+=1
-            # print(stay_ctr)
+            print_stub(stay_ctr)
             return True
             # return stay_ctr<2
     return func
@@ -373,7 +375,7 @@ while stay_cond():
 
         # If ret is False, the video has reached the end
         if not ret:
-            print("End of video file or cannot read the frame.")
+            print_stub("End of video file or cannot read the frame.")
             break
     else:
         frame_src = cv2.imread(frame_src_path)
@@ -523,13 +525,11 @@ while stay_cond():
 
             div = -(minor_r/major_r)/np.tan(alpha_param)
             sign = -1. if div>0 else 1.
-            # print(sign)
+            # print_stub(sign)
             bounceP = createP([1., div])
             bounceP = rotateP(bounceP, -persp_roll)
             bounceP /= l1P(bounceP)
             bounceP *= 450 * sign
-
-            convertToDrawableP(phantom_center + bounceP) + shift_to_src()
 
     # draw phantom
     if phantom_center is not None:
