@@ -254,8 +254,11 @@ set_weight(cue_right_net.conv_pos, cue_right_kern4, 3)
 # set_weight(pocket_net, kern3, 2)
 # set_weight(pocket_net, kern4, 3)
 
+# TODO: check
 def extract_circles(roi):
-    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    # gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    # gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    gray_roi = roi[:,:, 1]
     circles = cv2.HoughCircles(
         image=gray_roi,
         method=cv2.HOUGH_GRADIENT,
@@ -343,10 +346,10 @@ def circles_to_ellipses(circles, main_pitch):
 
         # Draw the outer circle outline (green)
         horizont = horizont_compute()
-        angle = (int(center[1]) + roi_offset_y - horizont) * pitch_per_pixels
+        angle = (center[1] + roi_offset_y - horizont) * pitch_per_pixels
         print_stub(f"yc: {center[1]}, yh: {horizont}")
         print_stub(f"angle : {angle}")
-        minor_radius = int(radius * abs(np.sin(angle)))
+        minor_radius = radius * abs(np.sin(angle))
         # circle.append(minor_radius)
         ellipses.append(np.append(circle, [minor_radius, persp_roll]))
     return ellipses
@@ -521,7 +524,7 @@ while stay_cond():
         phantom_center,alpha_param = find_phantom(target_ellipse, np.arange(0, np.pi, 0.2))
         # need more precision
         if phantom_center is not None:
-            phantom_center, alpha_param = find_phantom(target_ellipse, np.arange(alpha_param-0.1, alpha_param+0.1, 0.008))
+            phantom_center, alpha_param = find_phantom(target_ellipse, np.arange(alpha_param-0.1, alpha_param+0.1, 0.006))
 
             div = -(minor_r/major_r)/np.tan(alpha_param)
             sign = -1. if div>0 else 1.
