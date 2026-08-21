@@ -263,7 +263,7 @@ def extract_circles(roi):
         image=gray_roi,
         method=cv2.HOUGH_GRADIENT,
         dp=1,
-        minDist=80,
+        minDist=75,
         param1=86,
         param2=46,
         minRadius=30,
@@ -296,13 +296,26 @@ def update_gravity():
     global gravity
     while True:
         response = requests.get(cam_url + "/sensors.json")
-        gravity = response.json()["gravity"]["data"][-1][1]
+        response = response.json()
+
+        accum_n = 20
+        gravity_ = [0.0, 0.0, 0.0]
+        for i in range(accum_n):
+            gravity_tmp = response["gravity"]["data"][-1 - i][1]
+
+            for j in range(len(gravity_)):
+                gravity_[j] += gravity_tmp[j]
+
+        for j in range(len(gravity_)):
+            gravity_[j] /= accum_n
 
         # if flipped upside down
-        gravity[0] *= -1
-        gravity[1] *= -1
+        gravity_[0] *= -1
+        gravity_[1] *= -1
 
-        time.sleep(0.4)
+        gravity = gravity_
+
+        time.sleep(0.2)
 
 gravity_thread = threading.Thread(target=update_gravity, args=())
 if use_cap:
@@ -327,9 +340,8 @@ def find_phantom(target_ellipse, alpha_scope):
         center[1] += p_off[1]
 
         # compensate diff btw src and roi widths
-        # cue_shifted = cue.addP(-createP([frame_shape[1] * width_crop_k, -roi_offset_y]))
         dist_tmp = signedDistP(createP(center), cue)
-        print(f"dist: {dist}")
+        print_stub(f"dist: {dist}")
         if abs(dist_tmp) < abs(dist):
             dist = dist_tmp
             phantom_center = center
@@ -430,9 +442,11 @@ while stay_cond():
     if len(circles):
         circles = circles[0]
         circles = sorted(circles, key=lambda item: item[2])
-        if cue_mocked:
-            cue.p2 = createP(circles[-1][:2])
+        # if cue_mocked:
+
     ellipses = circles_to_ellipses(circles, main_pitch)
+    if len(ellipses):
+        cue.p2 = createP(ellipses[-1][:2])
 
     # pockets_torch = pocket_net(roi_torch)
 
@@ -498,9 +512,9 @@ while stay_cond():
             # cue update
 
             cue.p1 = middleP(pl1, pr1)
-            cue.p2 = middleP(pl2, pr2)
+            # cue.p2 = middleP(pl2, pr2)
             vector = cue.p2 - cue.p1
-            vector *= 2
+            vector *= 10
             cue.p2 += vector
 
 
@@ -536,8 +550,8 @@ while stay_cond():
 
     # draw phantom
     if phantom_center is not None:
-        phantom_center = np.uint16(np.around(phantom_center))
-        cv2.ellipse(roi, phantom_center, axes = (int(major_r), int(minor_r)), angle=persp_roll * to_degrees, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
+        # phantom_center = np.uint16(np.around(phantom_center))
+        cv2.ellipse(roi, convertToDrawableP(phantom_center), axes = (int(major_r), int(minor_r)), angle=persp_roll * to_degrees, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
         cv2.line(frame, convertToDrawableP(phantom_center) + shift_to_src(), convertToDrawableP(phantom_center + bounceP) + shift_to_src(), RED, thickness=1, lineType=cv2.LINE_AA)
 
     # horizont
