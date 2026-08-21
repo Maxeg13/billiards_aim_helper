@@ -18,6 +18,7 @@ RED = (0, 0, 255)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
+scale_k = 0.6
 to_radians = np.pi/180
 to_degrees = 1/to_radians
 color_channels_num = 3
@@ -31,8 +32,8 @@ pitch_per_pixels = 1./pixels_per_pitch
 use_stream_out = True
 # use_stream_out = False
 #
-# write_video = True
-write_video = False
+# video_write = True
+video_write = False
 #
 cue_mocked = True
 # cue_mocked = False
@@ -63,13 +64,13 @@ def track_mouse_coords(event, x, y, flags, param):
     if event == cv2.EVENT_MOUSEMOVE:
         # Prints live coordinates in your terminal
         print_stub(f"X: {x}, Y: {y}")
-        cue.p1 = createP([x - roi_offset_x, y - roi_offset_y])
+        cue.p1 = createP([x - roi_offset_x, y])
     # if event == cv2.EVENT_LBUTTONUP:
 
 cv2.namedWindow("Image Window")
 cv2.setMouseCallback("Image Window", track_mouse_coords)
 
-if write_video:
+if video_write:
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     out = cv2.VideoWriter('output.avi', fourcc, 20.0, (1152, 648))
 
@@ -144,10 +145,10 @@ cue_right_kern4 = io.read_image("data/cue_right_kern3.jpg").to(torch.float32).to
 # pocket_net.eval()
 
 def shift_to_src():
-    return convertToDrawableP([roi_offset_x, roi_offset_y])
+    return convertToDrawableP([roi_offset_x, 0])
 
 def shift_to_src_debug():
-    return createP([roi_offset_x, roi_offset_y])
+    return createP([roi_offset_x, 0])
 
 if use_stream_out:
     from flask import Flask, Response
@@ -358,7 +359,7 @@ def circles_to_ellipses(circles, main_pitch):
 
         # Draw the outer circle outline (green)
         horizont = horizont_compute()
-        angle = (center[1] + roi_offset_y - horizont) * pitch_per_pixels
+        angle = (center[1] - horizont) * pitch_per_pixels
         print_stub(f"yc: {center[1]}, yh: {horizont}")
         print_stub(f"angle : {angle}")
         minor_radius = radius * abs(np.sin(angle))
@@ -395,7 +396,7 @@ while stay_cond():
     else:
         frame_src = cv2.imread(frame_src_path)
 
-    frame_src = cv2.resize(frame_src, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
+    frame_src = cv2.resize(frame_src, None, fx=scale_k, fy=scale_k, interpolation=cv2.INTER_AREA)
     frame = frame_src.copy()
 
     # compense main roll
@@ -415,9 +416,8 @@ while stay_cond():
     horizont_y = horizont_compute()
     tripod_y = tripod_compute()
 
-    roi_offset_y = min(frame_shape[0] // 2, max(horizont_y, 0))
     roi_offset_x = int(frame_shape[1] * width_crop_k)
-    roi = frame[roi_offset_y:, roi_offset_x : int(frame_shape[1] - roi_offset_x)]
+    roi = frame[:, roi_offset_x : int(frame_shape[1] - roi_offset_x)]
 
     # cue roi
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
@@ -445,13 +445,11 @@ while stay_cond():
         # if cue_mocked:
 
     ellipses = circles_to_ellipses(circles, main_pitch)
-    if len(ellipses):
-        cue.p2 = createP(ellipses[-1][:2])
 
     # pockets_torch = pocket_net(roi_torch)
 
     # ____CUE__EVALUATIONS____
-    cue_exists = False
+    cue_detected = False
     if not cue_mocked:
         cue_base_left_modeled = cue_left_net(roi_cue_base_torch)
         cue_base_right_modeled = cue_right_net(roi_cue_base_torch)
@@ -504,9 +502,9 @@ while stay_cond():
         if keypoints_found:
             base_dist = l1P(pr1 - pl1)
             top_dist = l1P(pr2-pl2)
-            cue_exists = base_dist < 100 and top_dist < 100
+            cue_detected = base_dist < 100 and top_dist < 100
 
-        if cue_exists:
+        if cue_detected:
             cv2.line(roi, convertToDrawableP(pl1), convertToDrawableP(pl2), RED, thickness=2, lineType=cv2.LINE_AA)
             cv2.line(roi, convertToDrawableP(pr1), convertToDrawableP(pr2), RED, thickness=2, lineType=cv2.LINE_AA)
             # cue update
@@ -530,6 +528,9 @@ while stay_cond():
     #____phantom ball
     phantom_center = None
     if len(ellipses) >= 2:
+        if cue_detected or cue_mocked:
+            cue.p2 = createP(ellipses[-1][:2])
+
         target_ellipse = ellipses[-2]
         target_center = target_ellipse[0:2]
         major_r, minor_r = target_ellipse[2:4]
@@ -558,7 +559,7 @@ while stay_cond():
     cv2.line(frame, (0, horizont_y), (frame_shape[1], horizont_y), GREEN, thickness=1, lineType=cv2.LINE_AA)
 
     # cue
-    if cue_mocked or cue_exists:
+    if cue_mocked or cue_detected:
         cv2.line(frame, convertToDrawableP(cue.p1 + shift_to_src()), convertToDrawableP(cue.p2 + shift_to_src()), GREEN, thickness=2, lineType=cv2.LINE_AA)
 
     # to demonstrate perspective transform algorithm
@@ -580,7 +581,7 @@ while stay_cond():
     frame_out = frame.copy()
     cv2.imshow("Image Window", frame_out)
 
-    if write_video:
+    if video_write:
         out.write(frame_out)
 
     if use_cap:
