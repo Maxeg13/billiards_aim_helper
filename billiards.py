@@ -48,6 +48,28 @@ cam_url = "http://192.168.1.202:8080"
 
 video_path = "data/20260811_173328.mp4"
 
+class Accum:
+    def __init__(self):
+        self.capacity = 10
+        self.l = []
+    def append(self, x):
+        self.l.append(x)
+        if len(self.l) > self.capacity:
+            self.l.pop(0)
+    def pop(self):
+        if len(self.l):
+            self.l.pop(0)
+    def getVal(self):
+        accum = 0.
+        for el in self.l:
+            accum += el
+        return accum/len(self.l)
+    def is_empty(self):
+        return len(self.l) == 0
+
+vector_pocket_acc = Accum()
+vector_bounce_acc = Accum()
+
 def print_stub(args):
     pass
 
@@ -549,11 +571,16 @@ while stay_cond():
             bounceP /= l1P(bounceP)
             bounceP *= 450 * sign
 
+            vector_bounce_acc.append(bounceP)
+        else:
+            vector_bounce_acc.pop()
+
     # draw phantom
     if phantom_center is not None:
         # phantom_center = np.uint16(np.around(phantom_center))
         cv2.ellipse(roi, convertToDrawableP(phantom_center), axes = (int(major_r), int(minor_r)), angle=persp_roll * to_degrees, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
-        cv2.line(frame, convertToDrawableP(phantom_center) + shift_to_src(), convertToDrawableP(phantom_center + bounceP) + shift_to_src(), RED, thickness=1, lineType=cv2.LINE_AA)
+        if not vector_bounce_acc.is_empty():
+            cv2.line(frame, convertToDrawableP(phantom_center) + shift_to_src(), convertToDrawableP(phantom_center + vector_bounce_acc.getVal()) + shift_to_src(), RED, thickness=1, lineType=cv2.LINE_AA)
 
     # horizont
     cv2.line(frame, (0, horizont_y), (frame_shape[1], horizont_y), GREEN, thickness=1, lineType=cv2.LINE_AA)
@@ -574,9 +601,14 @@ while stay_cond():
         vector = createP(target_center) - createP(phantom_center)
         vector /= l1P(vector)
         vector *= 240
-        pt2 = createP(target_center) + vector
+
+        vector_pocket_acc.append(vector)
+
+        pt2 = createP(target_center) + vector_pocket_acc.getVal()
 
         cv2.line(frame, convertToDrawableP(target_center) + shift_to_src(), (convertToDrawableP(pt2)) + (shift_to_src()), RED, thickness=1, lineType=cv2.LINE_AA)
+    else:
+        vector_pocket_acc.pop()
 
     frame_out = frame.copy()
     cv2.imshow("Image Window", frame_out)
