@@ -25,18 +25,18 @@ color_channels_num = 3
 
 gravity_init = [8.386473, -0., 3.7]
 gravity = gravity_init
-width_crop_k = 0.19
+width_crop_k = 0.1
 pixels_per_pitch = 850
 pitch_per_pixels = 1./pixels_per_pitch
 
-use_stream_out = True
-# use_stream_out = False
+# use_stream_out = True
+use_stream_out = False
 #
-# video_write = True
-video_write = False
+video_write = True
+# video_write = False
 #
-cue_mocked = True
-# cue_mocked = False
+# cue_mocked = True
+cue_mocked = False
 #
 # use_cap = False
 use_cap = True
@@ -280,21 +280,28 @@ set_weight(cue_right_net.conv_pos, cue_right_kern4, 3)
 # TODO: check
 def extract_circles(roi):
     # gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    # gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    gray_roi = roi[:,:, 1]
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    gray_roi = cv2.GaussianBlur(gray_roi, (3, 3), 0)
+
+    # gray_roi = roi[:,:, 1]
     circles = cv2.HoughCircles(
         image=gray_roi,
-        method=cv2.HOUGH_GRADIENT,
+        method=cv2.HOUGH_GRADIENT_ALT,
         dp=1,
         minDist=75,
-        param1=86,
-        param2=46,
+        param1=300,     # 86
+        param2=0.85,    # 46
         minRadius=30,
         maxRadius=70
     )
 
     if circles is None:
         circles = []
+    else:
+        if len(circles[0]) > 2:
+            circles = circles[:,:2].copy()
+        print(len(circles[0]))
 
     return circles
 
@@ -498,37 +505,38 @@ while stay_cond():
             cv2.circle(roi, convertToDrawableP(pr1), radius=3, color=GREEN, thickness=3)
 
         #________________________________
-        cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top  left")
-        if cue_top_left_coords_A is not None:
-            cue_top_left_coords_A[0] -= 2
-            cue_top_left_coords = [cue_top_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
-            pl2 = createP(cue_top_left_coords)
-            pl2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
-            # debug keypoint
-            cv2.circle(roi, convertToDrawableP(pl2), radius=3, color=RED, thickness=3)
+        # cue_top_left_coords_A = get_coords_h(roi_cue_top_torch, cue_top_left_modeled, " top  left")
+        # if cue_top_left_coords_A is not None:
+        #     cue_top_left_coords_A[0] -= 2
+        #     cue_top_left_coords = [cue_top_left_coords_A[i] + cue_left_net.kern_size[1-i] // 2 for i in range(2)]
+        #     pl2 = createP(cue_top_left_coords)
+        #     pl2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
+        #     # debug keypoint
+        #     cv2.circle(roi, convertToDrawableP(pl2), radius=3, color=RED, thickness=3)
 
-        cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled)
-        if cue_top_right_coords_A is not None:
-            cue_top_right_coords = [cue_top_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
-            pr2 = createP(cue_top_right_coords)
-            pr2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
-            # debug keypoint
-            cv2.circle(roi, convertToDrawableP(pr2), radius=3, color=RED, thickness=3)
+        # cue_top_right_coords_A = get_coords_h(cue_top_right_modeled, cue_top_right_modeled)
+        # if cue_top_right_coords_A is not None:
+        #     cue_top_right_coords = [cue_top_right_coords_A[i] + cue_right_net.kern_size[1-i] // 2 for i in range(2)]
+        #     pr2 = createP(cue_top_right_coords)
+        #     pr2[1] += roi.shape[0] + roi_cue_top_offset_y - roi_cue_top.shape[0]
+        #     # debug keypoint
+        #     cv2.circle(roi, convertToDrawableP(pr2), radius=3, color=RED, thickness=3)
 
 
         #_______CV METHODS OVER_______
 
 
-        keypoints_found = (cue_top_left_coords_A is not None) and (cue_base_left_coords_A is not None) and\
-            (cue_top_right_coords_A is not None) and (cue_base_right_coords_A is not None)
+        keypoints_found = (cue_base_right_coords_A is not None) and (cue_base_left_coords_A is not None)# and\
+            # (cue_top_right_coords_A is not None) and (cue_top_left_coords_A is not None)
         if keypoints_found:
             base_dist = l1P(pr1 - pl1)
-            top_dist = l1P(pr2-pl2)
-            cue_detected = base_dist < 100 and top_dist < 100
+            # top_dist = l1P(pr2-pl2)
+            # cue_detected = base_dist < 100 and top_dist < 100
+            cue_detected = base_dist < 100
 
         if cue_detected:
-            cv2.line(roi, convertToDrawableP(pl1), convertToDrawableP(pl2), RED, thickness=2, lineType=cv2.LINE_AA)
-            cv2.line(roi, convertToDrawableP(pr1), convertToDrawableP(pr2), RED, thickness=2, lineType=cv2.LINE_AA)
+            # cv2.line(roi, convertToDrawableP(pl1), convertToDrawableP(pl2), RED, thickness=2, lineType=cv2.LINE_AA)
+            # cv2.line(roi, convertToDrawableP(pr1), convertToDrawableP(pr2), RED, thickness=2, lineType=cv2.LINE_AA)
             # cue update
 
             cue.p1 = middleP(pl1, pr1)
