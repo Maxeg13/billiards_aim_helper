@@ -35,8 +35,8 @@ use_stream_out = False
 video_write = True
 # video_write = False
 #
-# cue_mocked = True
-cue_mocked = False
+cue_mocked = True
+# cue_mocked = False
 #
 # use_cap = False
 use_cap = True
@@ -48,9 +48,9 @@ cam_url = "http://192.168.1.202:8080"
 
 video_path = "data/20260811_173328.mp4"
 
-class Accum:
-    def __init__(self):
-        self.capacity = 10
+class Queue:
+    def __init__(self, capacity):
+        self.capacity = capacity
         self.l = []
     def append(self, x):
         self.l.append(x)
@@ -59,16 +59,16 @@ class Accum:
     def pop(self):
         if len(self.l):
             self.l.pop(0)
-    def getVal(self):
+    def get_mean(self):
         accum = 0.
         for el in self.l:
             accum += el
-        return accum/len(self.l)
+        return accum / len(self.l)
     def is_empty(self):
         return len(self.l) == 0
 
-vector_pocket_acc = Accum()
-vector_bounce_acc = Accum()
+vector_pocket_acc = Queue(capacity=10)
+vector_bounce_acc = Queue(capacity=10)
 
 def print_stub(args):
     pass
@@ -301,7 +301,7 @@ def extract_circles(roi):
     else:
         if len(circles[0]) > 2:
             circles = circles[:,:2].copy()
-        print(len(circles[0]))
+        print_stub(len(circles[0]))
 
     return circles
 
@@ -352,12 +352,14 @@ if use_cap:
     gravity_thread.start()
 
 def find_phantom(target_ellipse, alpha_scope):
+    random.shuffle(alpha_scope)
     phantom_center = None
+    phantom_centers_queue = Queue(capacity=10)
     alpha_param = None
     target_center = target_ellipse[0:2]
     major_r, minor_r = target_ellipse[2:4]
     persp_roll = target_ellipse[4]
-    dist = 11
+    line_dist = 11
     for alpha in alpha_scope:
         x_off = major_r * np.cos(alpha) * 2
         y_off = minor_r * np.sin(alpha) * 2
@@ -370,12 +372,18 @@ def find_phantom(target_ellipse, alpha_scope):
         center[1] += p_off[1]
 
         # compensate diff btw src and roi widths
-        dist_tmp = signedDistP(createP(center), cue)
-        print_stub(f"dist: {dist}")
-        if abs(dist_tmp) < abs(dist):
-            dist = dist_tmp
-            phantom_center = center
+        line_dist_tmp = signedDistP(createP(center), cue)
+        print_stub(f"line_dist: {line_dist}")
+        if abs(line_dist_tmp) < abs(line_dist):
+            line_dist = line_dist_tmp
+            dist = l1P(cue.p1 - center)
+            print(dist)
+            phantom_centers_queue.append([center, alpha, dist])
+            # phantom_center = center
             alpha_param = alpha
+    if not phantom_centers_queue.is_empty():
+        phantom_center, alpha_param = min(phantom_centers_queue.l, key = lambda x: x[2])[:2]
+        print_stub("/n")
     return phantom_center, alpha_param
 
 def circles_to_ellipses(circles, main_pitch):
@@ -566,10 +574,11 @@ while stay_cond():
         major_r, minor_r = target_ellipse[2:4]
         persp_roll = target_ellipse[4]
 
-        phantom_center,alpha_param = find_phantom(target_ellipse, np.arange(0, np.pi, 0.2))
+        print_stub("phantom algo begin")
+        phantom_center,alpha_param = find_phantom(target_ellipse, np.arange(0-0.04, np.pi+0.04, 0.04))
         # need more precision
         if phantom_center is not None:
-            phantom_center, alpha_param = find_phantom(target_ellipse, np.arange(alpha_param-0.1, alpha_param+0.1, 0.006))
+            phantom_center, alpha_param = find_phantom(target_ellipse, np.arange(alpha_param-0.1, alpha_param+0.1, 0.005))
 
             div = -(minor_r/major_r)/np.tan(alpha_param)
             sign = -1. if div>0 else 1.
@@ -588,7 +597,7 @@ while stay_cond():
         # phantom_center = np.uint16(np.around(phantom_center))
         cv2.ellipse(roi, convertToDrawableP(phantom_center), axes = (int(major_r), int(minor_r)), angle=persp_roll * to_degrees, startAngle=0, endAngle=360, color=GREEN, thickness=1, lineType=cv2.LINE_AA)
         if not vector_bounce_acc.is_empty():
-            cv2.line(frame, convertToDrawableP(phantom_center) + shift_to_src(), convertToDrawableP(phantom_center + vector_bounce_acc.getVal()) + shift_to_src(), RED, thickness=1, lineType=cv2.LINE_AA)
+            cv2.line(frame, convertToDrawableP(phantom_center) + shift_to_src(), convertToDrawableP(phantom_center + vector_bounce_acc.get_mean()) + shift_to_src(), RED, thickness=1, lineType=cv2.LINE_AA)
 
     # horizont
     cv2.line(frame, (0, horizont_y), (frame_shape[1], horizont_y), GREEN, thickness=1, lineType=cv2.LINE_AA)
@@ -612,7 +621,7 @@ while stay_cond():
 
         vector_pocket_acc.append(vector)
 
-        pt2 = createP(target_center) + vector_pocket_acc.getVal()
+        pt2 = createP(target_center) + vector_pocket_acc.get_mean()
 
         cv2.line(frame, convertToDrawableP(target_center) + shift_to_src(), (convertToDrawableP(pt2)) + (shift_to_src()), RED, thickness=1, lineType=cv2.LINE_AA)
     else:
